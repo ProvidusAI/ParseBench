@@ -190,6 +190,15 @@ Hosted document-parsing API. Sign up at [oi-parser.ai](https://oi-parser.ai/) to
 
 ---
 
+### Nutrient DWS (Data Extraction API)
+
+| Pipeline | Description | Env Var |
+|---|---|---|
+| `nutrient_dws_text` | `text` mode, markdown only (no spatial output) | `NUTRIENT_DWS_API_KEY` |
+| `nutrient_dws_structure` | `structure` mode, OCR-backed with spatial elements | `NUTRIENT_DWS_API_KEY` |
+| `nutrient_dws_understand` | `understand` mode, adds semantic enrichment | `NUTRIENT_DWS_API_KEY` |
+| **`nutrient_dws_agentic`** | `agentic` mode, visual reasoning (In paper: *Nutrient DWS (Agentic)*) | `NUTRIENT_DWS_API_KEY` |
+
 ## Self-hosted Model Pipelines
 
 These pipelines require you to deploy the model on your own infrastructure (e.g., via vLLM, Modal, etc.) and set the endpoint URL in `.env`.
