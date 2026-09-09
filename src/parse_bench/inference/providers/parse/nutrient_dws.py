@@ -238,14 +238,16 @@ class NutrientDwsProvider(Provider):
                 return response.json()
 
             body = response.text[:500]
-            # 429 and 5xx are worth another attempt; anything else is the caller's
-            # fault (bad key, unsupported input) and retrying only burns time.
+            # 408, 429 and 5xx are worth another attempt; anything else is the
+            # caller's fault (bad key, unsupported input) and retrying burns time.
+            # 408 is the server giving up on a slow document, not a bad request —
+            # treating it as permanent silently drops that document from the run.
             if response.status_code == 429:
                 if attempt < self._retry_count:
                     time.sleep(self._backoff(response, attempt))
                     continue
                 raise ProviderRateLimitError(f"DWS parse rate limited: {body}")
-            if response.status_code >= 500:
+            if response.status_code == 408 or response.status_code >= 500:
                 if attempt < self._retry_count:
                     time.sleep(self._backoff(response, attempt))
                     continue
