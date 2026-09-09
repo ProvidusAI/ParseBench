@@ -24,11 +24,11 @@ _Top 10 by Overall score. For the full sortable, filterable leaderboard, see [pa
 |---:|---|---|---:|---:|---:|---:|---:|---:|---:|
 | 1 | LlamaParse Agentic Plus | LlamaParse | 90.20 | 93.37 | 94.18 | 92.25 | 87.12 | 84.09 | 5.62¢ |
 | 2 | LlamaParse Agentic | LlamaParse | 87.01 | 88.88 | 88.68 | 91.78 | 81.44 | 84.25 | 1.25¢ |
-| 3 | LlamaParse Cost Effective | LlamaParse | 80.61 | 84.19 | 77.91 | 89.87 | 67.29 | 83.77 | 0.38¢ |
-| 4 | Anthropic Fable 5.1 | VLM - Proprietary | 78.92 | 91.52 | 67.06 | 91.19 | 76.52 | 68.3 | 16.05¢ |
-| 5 | oi-parser | Commercial - Startup APIs | 78.30 | 92.62 | 78.28 | 86.17 | 66.88 | 67.53 | — |
-| 6 | rakedoc-nano | VLM - Open Weight | 77.23 | 86.44 | 64.89 | 88.84 | 71.68 | 74.28 | — |
-| 7 | Pulse Ultra 2 | Commercial - Startup APIs | 77.08 | 75.45 | 90.82 | 79.49 | 73.05 | 66.56 | 15.00¢ |
+| 3 | Pulse Ultra 2 | Commercial - Startup APIs | 81.60 | 90.35 | 89.70 | 87.63 | 73.97 | 66.35 | 1.50¢ |
+| 4 | LlamaParse Cost Effective | LlamaParse | 80.61 | 84.19 | 77.91 | 89.87 | 67.29 | 83.77 | 0.38¢ |
+| 5 | Anthropic Fable 5.1 | VLM - Proprietary | 78.92 | 91.52 | 67.06 | 91.19 | 76.52 | 68.3 | 16.05¢ |
+| 6 | oi-parser | Commercial - Startup APIs | 78.30 | 92.62 | 78.28 | 86.17 | 66.88 | 67.53 | — |
+| 7 | rakedoc-nano | VLM - Open Weight | 77.23 | 86.44 | 64.89 | 88.84 | 71.68 | 74.28 | — |
 | 8 | florin-parser-nano | VLM - Open Weight | 76.69 | 86.10 | 65.19 | 87.37 | 70.64 | 74.14 | — |
 | 9 | KDL-Frontier-Parser-nano | VLM - Open Weight | 76.36 | 85.56 | 63.41 | 87.19 | 66.81 | 78.84 | — |
 | 10 | Extend (2.0) | Commercial - Startup APIs | 75.33 | 84.82 | 78.31 | 84.59 | 60.31 | 68.61 | 2.50¢ |
@@ -44,14 +44,19 @@ _Top 10 by Overall score. For the full sortable, filterable leaderboard, see [pa
 **Prerequisites:** Create a `.env` file with the API key for the parsing tool you want to evaluate (see [Configuration](#configuration) for details).
 
 ```bash
-# Install
+# Install from PyPI (pick the extras for the providers you want to run)
+pip install "parse-bench[runners]"          # every provider SDK
+pip install "parse-bench[llamaparse]"       # or just one, e.g. llamaparse / openai / anthropic / google
+
+# Or, from a checkout of this repo
 uv sync --extra runners
 
 # Optional: add the `fast` extra for a JIT-accelerated TEDS table metric (numba).
 # Scores are identical to the default path — just faster on large tables.
-uv sync --extra runners --extra fast
+pip install "parse-bench[runners,fast]"
 
 # Quick test run (small dataset, 3 files per category — good for trying things out)
+# (drop the `uv run` prefix if you installed from PyPI)
 uv run parse-bench run llamaparse_agentic --test
 
 # Full benchmark run (replace llamaparse_agentic with any pipeline name, see "Available Pipelines" below)
@@ -63,7 +68,7 @@ uv run parse-bench serve llamaparse_agentic
 
 ## Available Pipelines
 
-A **pipeline** is a document parsing tool or configuration that you want to evaluate. There are 90+ pipelines available -- see [docs/pipelines.md](docs/pipelines.md) for the full list, or run `uv run parse-bench pipelines`.
+A **pipeline** is a document parsing tool or configuration that you want to evaluate. There are 180+ pipelines available -- see [docs/pipelines.md](docs/pipelines.md) for the full list, or run `uv run parse-bench pipelines`. To add your own providers, pipelines, products or rule types from another package, see [docs/extending.md](docs/extending.md).
 
 <details>
 <summary><strong>Paper baselines (21 pipelines)</strong></summary>
@@ -86,7 +91,6 @@ A **pipeline** is a document parsing tool or configuration that you want to eval
 | `google_docai_layout` | Google Cloud Document AI |
 | `reducto` | Reducto |
 | `reducto_agentic` | Reducto (Agentic) |
-| `reducto_r1` | Reducto (r-1) |
 | `extend_parse` | Extend |
 | `landingai_parse` | LandingAI |
 | `qwen3_5_4b_vllm_parse` | Qwen 3 VL |
@@ -117,7 +121,7 @@ Content Faithfulness and Semantic Formatting share the same 507 underlying text 
 - **Tables** — Structural fidelity of merged cells and hierarchical headers. A misaligned header means the agent reads the wrong column when looking up a value.
 - **Charts** — Exact data point extraction with correct series and axis labels from bar, line, pie, and compound charts. Most parsers return raw text instead of structured data, leaving agents unable to extract precise values.
 - **Content Faithfulness** — Omissions, hallucinations, and reading-order violations. If the agent's context is incomplete or contains fabricated content, every downstream decision is compromised.
-- **Semantic Formatting** — Preservation of formatting that carries meaning: strikethrough (marks superseded content), superscript/subscript (footnotes, formulas), bold (defined terms, key values), and title hierarchy. A strikethrough price is not the current price.
+- **Semantic Formatting** — Preservation of formatting that carries meaning: strikethrough (marks superseded content), superscript/subscript (footnotes, formulas), bold (defined terms, key values), and title hierarchy. A strikethrough price is not the current price. Italic, underline, and mark/highlight are evaluated as rule-level metrics but intentionally excluded from the headline Semantic Formatting score.
 - **Visual Grounding** — Tracing every extracted element back to its source location on the page. Required for auditability in regulated workflows where every value must be traceable.
 
 The dataset is automatically downloaded when you run a pipeline. To manage it manually:
