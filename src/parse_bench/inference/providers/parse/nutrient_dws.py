@@ -322,13 +322,14 @@ class NutrientDwsProvider(Provider):
     def _styled_text(el: dict, plain: str) -> str:
         """Re-render an element's text with inline styling from word-level flags.
 
+        Emits **bold** / *italic* / ~~strike~~ / <u> / <mark> / <sup> / <sub> runs.
         Words are grouped into visual lines by their bounds so a wrapped paragraph
         keeps its line structure. Requires ``includeWords`` on the request.
         """
         words = el.get("words") or []
         if not any(
             w.get("bold") or w.get("italic") or w.get("underlined") or w.get("underline")
-            or w.get("strikethrough") or w.get("strikeout")
+            or w.get("strikethrough") or w.get("strikeout") or w.get("mark")
             or w.get("superscript") or w.get("subscript")
             for w in words
         ):
@@ -353,44 +354,66 @@ class NutrientDwsProvider(Provider):
                 bool(w.get("bold")),
                 bool(w.get("italic")),
                 bool(w.get("strikethrough") or w.get("strikeout")),
-                bool(w.get("underlined") or w.get("underline")),
                 bool(w.get("superscript")),
                 bool(w.get("subscript")),
+                bool(w.get("underlined") or w.get("underline")),
+                bool(w.get("mark")),
             )
 
-        def _wrap(text: str, key: tuple) -> str:
-            bold, italic, strike, underline, sup, sub = key
-            if not text.strip():
-                return text
-            if sup:
-                text = f"<sup>{text}</sup>"
-            if sub:
-                text = f"<sub>{text}</sub>"
-            if underline:
-                text = f"<u>{text}</u>"
-            if strike:
-                text = f"~~{text}~~"
-            # Bold+italic renders as **_x_** to match the SDK's own Markdown export.
-            if italic:
-                text = f"_{text}_"
-            if bold:
-                text = f"**{text}**"
-            return text
+        def _glued(prev: dict | None, curr: dict) -> bool:
+            # A script marker split from its base word sits flush against it — attach
+            # without a space so markup-stripping reproduces the original text exactly.
+            if prev is None or not (
+                curr.get("superscript") or curr.get("subscript")
+                or prev.get("superscript") or prev.get("subscript")
+            ):
+                return False
+            pb = prev.get("bounds") or {}
+            cb = curr.get("bounds") or {}
+            gap = float(cb.get("x", 0)) - (float(pb.get("x", 0)) + float(pb.get("width", 0)))
+            height = max(float(pb.get("height", 0)), float(cb.get("height", 0)), 1.0)
+            return gap < max(2.0, 0.15 * height)
 
         def _style_line(line: list[dict]) -> str:
             out = ""
-            run: list[dict] = []
-            for w in line:
-                if run and _key(w) != _key(run[-1]):
-                    out += ("" if not out else " ") + _wrap(
-                        " ".join(x.get("text", "") for x in run), _key(run[-1])
-                    )
-                    run = []
-                run.append(w)
-            if run:
-                out += ("" if not out else " ") + _wrap(
-                    " ".join(x.get("text", "") for x in run), _key(run[-1])
-                )
+            prev_word: dict | None = None
+            i = 0
+            while i < len(line):
+                key = _key(line[i])
+                j = i
+                while j + 1 < len(line) and key == _key(line[j + 1]):
+                    j += 1
+                run_words = line[i:j + 1]
+                run = " ".join((w.get("text") or "") for w in run_words).strip()
+                first_word = run_words[0]
+                i = j + 1
+                if not run:
+                    continue
+                bold, italic, strike, sup, sub, underlined, mark = key
+                if sup:
+                    run = f"<sup>{run}</sup>"
+                elif sub:
+                    run = f"<sub>{run}</sub>"
+                if strike:
+                    run = f"~~{run}~~"
+                if underlined:
+                    # Markdown has no native underline; <u> is the standard inline-HTML form.
+                    run = f"<u>{run}</u>"
+                if mark:
+                    run = f"<mark>{run}</mark>"
+                if bold and italic:
+                    run = f"***{run}***"
+                elif bold:
+                    run = f"**{run}**"
+                elif italic:
+                    run = f"*{run}*"
+                if not out:
+                    out = run
+                elif _glued(prev_word, first_word):
+                    out += run
+                else:
+                    out += " " + run
+                prev_word = run_words[-1]
             return out
 
         rendered = "\n".join(s for s in (_style_line(line) for line in lines) if s)
@@ -415,7 +438,8 @@ class NutrientDwsProvider(Provider):
             level = el.get("headingLevel") or (1 if role == "Title" else 2)
             # A markdown heading ends at the newline, so a heading that wrapped in
             # the PDF must be collapsed to one line or its tail becomes body text.
-            return "#" * int(level) + " " + " ".join(text.split())
+            styled = self._styled_text(el, text)
+            return "#" * int(level) + " " + " ".join(styled.split())
         return self._styled_text(el, text)
 
     @staticmethod
