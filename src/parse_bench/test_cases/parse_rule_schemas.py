@@ -116,6 +116,14 @@ class ParsePresenceRule(ParseRuleBase):
     count: int | None = None
 
 
+class _VersionedTextBag(BaseModel):
+    """Opt-in contract only on supported content-bag rule types."""
+
+    text_normalization: Literal["text-v2.1"] | None = Field(
+        default=None, description="Opt-in visible-text bag contract; omitted preserves legacy scoring."
+    )
+
+
 class _SentenceBagRule(ParseRuleBase):
     bag_of_sentence: dict[str, int] = Field(default_factory=dict)
 
@@ -124,7 +132,7 @@ class ParseUnexpectedSentenceRule(_SentenceBagRule):
     type: Literal[TestType.UNEXPECTED_SENTENCE.value]
 
 
-class ParseUnexpectedSentencePercentRule(_SentenceBagRule):
+class ParseUnexpectedSentencePercentRule(_SentenceBagRule, _VersionedTextBag):
     type: Literal[TestType.UNEXPECTED_SENTENCE_PERCENT.value]
     original_md: str | None = Field(
         default=None,
@@ -138,7 +146,7 @@ class ParseTooManySentenceOccurrenceRule(_SentenceBagRule):
     type: Literal[TestType.TOO_MANY_SENTENCE_OCCURENCE.value]
 
 
-class ParseTooManySentenceOccurrencePercentRule(_SentenceBagRule):
+class ParseTooManySentenceOccurrencePercentRule(_SentenceBagRule, _VersionedTextBag):
     type: Literal[TestType.TOO_MANY_SENTENCE_OCCURENCE_PERCENT.value]
 
 
@@ -146,7 +154,7 @@ class ParseMissingSentenceRule(_SentenceBagRule):
     type: Literal[TestType.MISSING_SENTENCE.value]
 
 
-class ParseMissingSentencePercentRule(_SentenceBagRule):
+class ParseMissingSentencePercentRule(_SentenceBagRule, _VersionedTextBag):
     type: Literal[TestType.MISSING_SENTENCE_PERCENT.value]
 
 
@@ -165,7 +173,7 @@ class ParseUnexpectedWordRule(_WordBagRule):
     type: Literal[TestType.UNEXPECTED_WORD.value]
 
 
-class ParseUnexpectedWordPercentRule(_WordBagRule):
+class ParseUnexpectedWordPercentRule(_WordBagRule, _VersionedTextBag):
     type: Literal[TestType.UNEXPECTED_WORD_PERCENT.value]
 
 
@@ -173,7 +181,7 @@ class ParseTooManyWordOccurrenceRule(_WordBagRule):
     type: Literal[TestType.TOO_MANY_WORD_OCCURENCE.value]
 
 
-class ParseTooManyWordOccurrencePercentRule(_WordBagRule):
+class ParseTooManyWordOccurrencePercentRule(_WordBagRule, _VersionedTextBag):
     type: Literal[TestType.TOO_MANY_WORD_OCCURENCE_PERCENT.value]
 
 
@@ -181,7 +189,7 @@ class ParseMissingWordRule(_WordBagRule):
     type: Literal[TestType.MISSING_WORD.value]
 
 
-class ParseMissingWordPercentRule(_WordBagRule):
+class ParseMissingWordPercentRule(_WordBagRule, _VersionedTextBag):
     type: Literal[TestType.MISSING_WORD_PERCENT.value]
 
 
@@ -587,7 +595,7 @@ class ParsePageSectionRule(ParseRuleBase):
     text: str = ""
 
 
-class ParseBagOfDigitPercentRule(ParseRuleBase):
+class ParseBagOfDigitPercentRule(ParseRuleBase, _VersionedTextBag):
     """Schema for `bag_of_digit_percent` rule.
 
     Compares digit frequency (0-9) between expected markdown and actual output.

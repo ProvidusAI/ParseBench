@@ -605,6 +605,12 @@ def create_test_rule(rule_data: ParseRuleInput) -> "ParseTestRule":
 
     typed_rule: Any = coerce_parse_rule(rule_data)
     rule_type = get_rule_type(typed_rule)
+    if typed_rule.get("text_normalization") == "text-v2.1":
+        from parse_bench.evaluation.metrics.parse.text_v21 import RULE_TYPES, VisibleTextBagRule
+
+        if rule_type not in RULE_TYPES:
+            raise ValueError(f"text-v2.1 does not support rule type {rule_type}")
+        return VisibleTextBagRule(typed_rule)
     if not rule_type:
         raise ValueError("Rule must have a 'type' field")
 
