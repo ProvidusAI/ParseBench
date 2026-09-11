@@ -13,6 +13,7 @@ _PROVIDER_MODULES = [
     "chunkr",
     "databricks_ai_parse",
     "datalab",
+    "deepseek",
     "deepseekocr2",
     "docling",
     "docling_serve",
