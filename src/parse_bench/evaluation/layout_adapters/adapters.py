@@ -1391,6 +1391,42 @@ class Gemma4LayoutAdapter(LayoutAdapter):
         )
 
 
+@register_layout_adapter("deepseek", priority=90)
+class DeepSeekLayoutAdapter(LayoutAdapter):
+    """Adapter that extracts LayoutOutput from DeepSeek ParseOutput.layout_pages.
+
+    Enables cross-evaluation: the ``deepseek_*_parse_with_layout`` PARSE
+    pipelines can be evaluated against layout detection datasets using the
+    bboxes from the div-wrapped output. DeepSeek emits the same
+    ``<div data-bbox data-label>`` shape as the other OpenAI-compatible VLM
+    parse providers, so it reuses that layout model tag.
+    """
+
+    @classmethod
+    def matches(cls, inference_result: InferenceResult) -> bool:
+        if not isinstance(inference_result.output, ParseOutput):
+            return False
+        if not inference_result.output.layout_pages:
+            return False
+        raw_output = inference_result.raw_output
+        if not isinstance(raw_output, dict):
+            return False
+        model = raw_output.get("model", "")
+        return isinstance(model, str) and model.startswith("deepseek-")
+
+    def to_layout_output(
+        self,
+        inference_result: InferenceResult,
+        *,
+        page_filter: int | None = None,
+    ) -> LayoutOutput:
+        return _parse_with_layout_to_layout_output(
+            inference_result,
+            model=LayoutDetectionModel.OPENAI_COMPATIBLE_VLM_LAYOUT,
+            page_filter=page_filter,
+        )
+
+
 @register_layout_adapter("openai", priority=90)
 class OpenAILayoutAdapter(LayoutAdapter):
     """Adapter that extracts LayoutOutput from OpenAI ParseOutput.layout_pages.

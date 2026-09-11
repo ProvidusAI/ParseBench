@@ -1222,6 +1222,45 @@ def register_parse_pipelines(register_fn) -> None:  # type: ignore[no-untyped-de
     )
 
     # =========================================================================
+    # DeepSeek-V4.1-Flash
+    # =========================================================================
+
+    # The API model id is the unversioned alias "deepseek-flash", which currently
+    # serves DeepSeek-V4.1-Flash; the pipeline names pin the version benched.
+    # DeepSeek's image input takes JPEG/PNG/GIF/WebP only — there is no PDF
+    # content block — so these are image pipelines, with no _file counterpart.
+    # Thinking is on by default at "high" effort; the no_thinking variant turns
+    # it off outright rather than asking for reasoning_effort "none".
+    register_fn(
+        PipelineSpec(
+            pipeline_name="deepseek_v4_1_flash_parse_with_layout",
+            provider_name="deepseek",
+            product_type=ProductType.PARSE,
+            config={
+                "model": "deepseek-flash",
+                "max_tokens": 32768,
+                "mode": "parse_with_layout",
+                "thinking": "enabled",
+                "reasoning_effort": "high",
+            },
+        )
+    )
+
+    register_fn(
+        PipelineSpec(
+            pipeline_name="deepseek_v4_1_flash_no_thinking_parse_with_layout",
+            provider_name="deepseek",
+            product_type=ProductType.PARSE,
+            config={
+                "model": "deepseek-flash",
+                "max_tokens": 32768,
+                "mode": "parse_with_layout",
+                "thinking": "disabled",
+            },
+        )
+    )
+
+    # =========================================================================
     # Qwen3.5-4B vLLM
     # =========================================================================
 
