@@ -247,26 +247,41 @@ def _load_jsonl_dataset(root_dir: Path) -> list[TestCase]:
         rule_meta = group_data.get("rule_meta", {})
         all_tags = [category] + [t for t in extra_tags if t != category]
 
-        if layout_rules:
-            # Keep parse_rules alongside layout_rules; test_rules type-routes each.
+        if layout_rules and not parse_rules:
+            # Pure layout test case. A document whose only parse-side ground
+            # truth is ``expected_markdown`` stays here too, even though that
+            # markdown is then dropped: routing it to the branch below would
+            # hand it to ``_has_mixed_rules``, which looks for a non-layout
+            # *rule* and would find none, so the document would lose its layout
+            # scoring instead — a worse trade.
             tc = LayoutDetectionTestCase(
                 test_id=test_id,
                 group=category,
                 file_path=pdf_path,
                 tags=all_tags,
-                test_rules=layout_rules + parse_rules,
+                test_rules=layout_rules,
                 ontology=layout_rules[0].get("ontology"),
                 page_index=layout_rules[0].get("page_index", 0),
             )
         else:
-            # Parse test case — only coerce parse rules (layout rules handled separately)
-            typed_rules = coerce_parse_rule_list(parse_rules)
+            # Anything with parse-side ground truth — parse rules, markdown, or
+            # both — loads as a ParseTestCase carrying *all* of its rules.
+            # ``ParseTestCase.test_rules`` type-routes each entry (layout,
+            # extract_field, parse) through ``_coerce_mixed_rule_list``, and it
+            # is the only branch that carries ``expected_markdown`` and the
+            # table settings. Routing a mixed document to
+            # ``LayoutDetectionTestCase`` instead would keep the layout rules
+            # but silently drop those, and its rule union is closed, so an
+            # extension or extract_field rule would fail validation outright.
+            # The evaluation runner splits the rules by type
+            # (``_has_mixed_rules`` -> ``_evaluate_multi_task``), so the layout
+            # half is still scored from here.
             tc = ParseTestCase(
                 test_id=test_id,
                 group=category,
                 file_path=pdf_path,
                 tags=all_tags,
-                test_rules=typed_rules,
+                test_rules=layout_rules + parse_rules,
                 expected_markdown=expected_md,
                 allow_splitting_ambiguous_merged_tables=rule_meta.get("allow_splitting_ambiguous_merged_tables", False),
                 trm_unsupported=rule_meta.get("trm_unsupported", False),
