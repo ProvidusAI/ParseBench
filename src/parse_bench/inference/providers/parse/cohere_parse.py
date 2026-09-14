@@ -264,7 +264,7 @@ class CohereParseProvider(Provider):
         HTTP request timeout in seconds (default 660).
     """
 
-    COST_PER_PAGE_USD = 0.001
+    COST_PER_PAGE_USD = 0.0015
 
     def __init__(self, provider_name: str, base_config: dict[str, Any] | None = None):
         super().__init__(provider_name, base_config)
