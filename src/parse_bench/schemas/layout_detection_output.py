@@ -324,6 +324,9 @@ class LayoutDetectionModel(StrEnum):
     PYMUPDF4LLM_LAYOUT = "pymupdf4llm_layout"
     LITEPARSE_LAYOUT = "liteparse_layout"
     FIRECRAWL_LAYOUT = "firecrawl_layout"
+    # Sentinel for a provider that emitted no layout at all. Used to score a
+    # genuine zero against an empty prediction set; never emitted by a provider.
+    NONE = "none"
 
 
 LAYOUT_MODEL_INFO: dict[LayoutDetectionModel, dict[str, str]] = {

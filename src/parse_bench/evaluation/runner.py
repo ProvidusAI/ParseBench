@@ -37,8 +37,8 @@ from parse_bench.evaluation.evaluators.qa import QAEvaluator
 from parse_bench.evaluation.layout_adapters import create_layout_adapter_for_result
 from parse_bench.evaluation.metric_aggregation import add_precision_recall_f1_aggregates
 from parse_bench.evaluation.stats import build_operational_stats
-from parse_bench.schemas.evaluation import EvaluationResult, EvaluationSummary
-from parse_bench.schemas.layout_detection_output import LayoutOutput
+from parse_bench.schemas.evaluation import EvaluationResult, EvaluationSummary, MetricValue
+from parse_bench.schemas.layout_detection_output import LayoutDetectionModel, LayoutOutput
 from parse_bench.schemas.pipeline_io import InferenceRequest, InferenceResult
 from parse_bench.schemas.product import ProductType
 from parse_bench.test_cases import load_test_cases
@@ -85,6 +85,44 @@ def _is_infra_failure(result: EvaluationResult) -> bool:
     if "not LayoutOutput" in result.error:
         return False
     return result.error.startswith(("Worker error:", "Evaluation error:", "Task execution error:"))
+
+
+# Metric names the parse half of a mixed result owns. The layout evaluator emits
+# ``rule_pass_rate`` as an alias of ``layout_rule_pass_rate``; in a mixed result
+# that name is already taken.
+_PARSE_OWNED_METRIC_NAMES = frozenset({"rule_pass_rate"})
+
+
+def _drop_parse_owned_metric_aliases(
+    layout_metrics: list[MetricValue],
+    already_emitted: set[str],
+) -> list[MetricValue]:
+    """Drop layout metric names the parse half already emitted in a mixed result.
+
+    ``_evaluate_multi_task`` concatenates the parse and layout metric lists, and
+    the layout evaluator emits ``rule_pass_rate`` as an alias of the
+    ``layout_rule_pass_rate`` it emits alongside it. Two entries under one name
+    make a single document contribute two samples to the ``avg_*`` aggregate and
+    pool unrelated denominators into ``micro_*``, while the CSV export and the
+    detailed report flatten to ``{m.metric_name: m.value}`` and silently keep
+    whichever came last, so the per-example number disagrees with the rule
+    detail pane under it.
+
+    The alias is the entry to drop rather than the parse one: the parse
+    ``rule_pass_rate`` carries the ``rule_results`` payload the detailed report
+    renders, and its value is a graduated score, not ``passed / total``, so the
+    two cannot be combined arithmetically. ``layout_rule_pass_rate`` keeps the
+    layout half's number and subcounts intact.
+
+    Only names the parse half actually emitted are dropped — when the parse half
+    produced nothing, the layout alias is the only ``rule_pass_rate`` there is
+    and the document keeps it.
+    """
+    return [
+        metric
+        for metric in layout_metrics
+        if not (metric.metric_name in _PARSE_OWNED_METRIC_NAMES and metric.metric_name in already_emitted)
+    ]
 
 
 # Diagnostic metrics that are counts or lower-is-better rates. Padding a
@@ -1642,8 +1680,6 @@ class EvaluationRunner:
         :param test_case: Test case with mixed rule types
         :return: Combined evaluation result with metrics from both evaluators
         """
-        from parse_bench.schemas.evaluation import MetricValue
-
         # Get all rules from the test case
         all_rules = test_case.test_rules or []
 
@@ -1656,12 +1692,24 @@ class EvaluationRunner:
 
         # Evaluate parse rules (table, order, present, absent, etc.)
         if parse_rules:
+            # Carry the document-scoped parse configuration onto the split test
+            # case. ``expected_markdown`` is what drives text similarity, TEDS
+            # and GriTS, and the three table knobs govern the title-strip and
+            # TRM fallback behaviour, so rebuilding without them scores a mixed
+            # document differently from the same document with no layout rule
+            # on it.
             temp_parse_test_case = ParseTestCase(
                 test_id=test_case.test_id,
                 group=test_case.group,
                 file_path=test_case.file_path,
                 test_rules=parse_rules,  # type: ignore[arg-type]
-                expected_markdown=None,
+                expected_markdown=getattr(test_case, "expected_markdown", None),
+                allow_splitting_ambiguous_merged_tables=getattr(
+                    test_case, "allow_splitting_ambiguous_merged_tables", False
+                ),
+                trm_unsupported=getattr(test_case, "trm_unsupported", False),
+                max_top_title_rows=getattr(test_case, "max_top_title_rows", 1),
+                metadata=getattr(test_case, "metadata", None),
             )
 
             # Create a synthetic PARSE inference result if needed
@@ -1695,7 +1743,11 @@ class EvaluationRunner:
 
         # Evaluate layout rules (cross-evaluation from PARSE output)
         if layout_rules:
-            metadata = test_case.metadata if isinstance(test_case, LayoutDetectionTestCase) else None
+            # ``metadata`` exists on both test case classes, so read it by
+            # attribute instead of gating on LayoutDetectionTestCase: a mixed
+            # ParseTestCase carries the same ``source_dataset`` the layout label
+            # mapper needs, and gating on the class silently dropped it.
+            metadata = getattr(test_case, "metadata", None)
             # For multi-page documents, layout rules may span multiple pages
             # Create test case with all layout rules (page_index=0 as default)
             temp_layout_test_case = LayoutDetectionTestCase(
@@ -1703,37 +1755,79 @@ class EvaluationRunner:
                 group=test_case.group,
                 file_path=test_case.file_path,
                 test_rules=layout_rules,
-                source_dataset=metadata.get("source_dataset") if metadata else None,
+                source_dataset=getattr(test_case, "source_dataset", None)
+                or (metadata.get("source_dataset") if metadata else None),
                 # Not used for multi-page; GT filtering is done by
                 # get_layout_annotations.
                 page_index=0,
                 metadata=metadata,
             )
 
-            adapter = create_layout_adapter_for_result(inference_result)
-            layout_output = adapter.to_layout_output(inference_result)
+            # A provider that emits no layout at all — markdown-only parse
+            # output, or a shape no adapter matches — raises `ValueError` out of
+            # the default adapter. That must not take the parse half down with
+            # it: the exception surfaces as ``Evaluation error: ... not
+            # LayoutOutput``, and a failed result has *every* metric dropped by
+            # _aggregate_metrics, so the rules this document did pass would
+            # vanish and the document would be zero-padded on top. Catch only
+            # that condition — a TypeError or an adapter bug still has to
+            # surface as a failure, which is what _is_infra_failure sorts out.
+            #
+            # When no adapter matches, the provider emitted nothing the layout
+            # task can score, which is a genuine 0 — the same verdict
+            # _is_infra_failure reaches for a pure-layout document. Leaving
+            # the layout half unscored instead would drop this document from
+            # avg_AP50 / avg_mean_f1 / avg_layout_rule_pass_rate and inflate
+            # those averages over the surviving documents. Scoring an empty
+            # ``LayoutOutput`` (rather than hand-rolling a zero) lets the
+            # evaluator emit the full metric set with its own denominators.
+            layout_output: LayoutOutput
+            try:
+                adapter = create_layout_adapter_for_result(inference_result)
+                layout_output = adapter.to_layout_output(inference_result)
+            except ValueError as e:
+                if "not LayoutOutput" not in str(e):
+                    raise
+                layout_output = LayoutOutput(
+                    example_id=inference_result.request.example_id,
+                    pipeline_name=inference_result.pipeline_name,
+                    model=LayoutDetectionModel.NONE,
+                    image_width=1,
+                    image_height=1,
+                    predictions=[],
+                )
 
-            if layout_output.predictions:
-                layout_evaluator = self._evaluators.get("layout_detection")
-                if layout_evaluator:
-                    try:
-                        # Create synthetic inference result with layout output
-                        layout_inference_result = InferenceResult(
-                            request=inference_result.request,
-                            pipeline_name=inference_result.pipeline_name,
-                            product_type=ProductType.LAYOUT_DETECTION,
-                            raw_output=inference_result.raw_output,
-                            output=layout_output,
-                            started_at=inference_result.started_at,
-                            completed_at=inference_result.completed_at,
-                            latency_in_ms=inference_result.latency_in_ms,
+            # An empty prediction set — whether the adapter matched and found
+            # nothing, or no adapter matched at all — is scoreable: the
+            # evaluator returns a genuine 0 across the whole metric set, with
+            # the denominators it builds itself (localization and
+            # classification are separate checks, so an element count would
+            # under-count them). Previously this branch appended "Could not
+            # extract layout from PARSE output" and failed the whole result,
+            # taking the parse metrics with it.
+            layout_evaluator = self._evaluators.get("layout_detection")
+            if layout_evaluator:
+                try:
+                    # Create synthetic inference result with layout output
+                    layout_inference_result = InferenceResult(
+                        request=inference_result.request,
+                        pipeline_name=inference_result.pipeline_name,
+                        product_type=ProductType.LAYOUT_DETECTION,
+                        raw_output=inference_result.raw_output,
+                        output=layout_output,
+                        started_at=inference_result.started_at,
+                        completed_at=inference_result.completed_at,
+                        latency_in_ms=inference_result.latency_in_ms,
+                    )
+                    layout_result = layout_evaluator.evaluate(layout_inference_result, temp_layout_test_case)
+                    all_metrics.extend(
+                        _drop_parse_owned_metric_aliases(
+                            list(layout_result.metrics),
+                            {metric.metric_name for metric in all_metrics},
                         )
-                        layout_result = layout_evaluator.evaluate(layout_inference_result, temp_layout_test_case)
-                        all_metrics.extend(layout_result.metrics)
-                    except Exception as e:
-                        errors.append(f"Layout evaluation error: {e}")
-            else:
-                errors.append("Could not extract layout from PARSE output")
+                    )
+                except Exception as e:
+                    errors.append(f"Layout evaluation error: {e}")
 
         stats = build_operational_stats(inference_result)
 

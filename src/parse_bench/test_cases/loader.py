@@ -247,26 +247,29 @@ def _load_jsonl_dataset(root_dir: Path) -> list[TestCase]:
         rule_meta = group_data.get("rule_meta", {})
         all_tags = [category] + [t for t in extra_tags if t != category]
 
-        if layout_rules:
-            # Keep parse_rules alongside layout_rules; test_rules type-routes each.
+        if layout_rules and not parse_rules:
+            # Pure layout. An expected_markdown-only doc belongs here too: it has
+            # no non-layout rule, so _has_mixed_rules is False in the else branch
+            # and its layout rules would go unscored.
             tc = LayoutDetectionTestCase(
                 test_id=test_id,
                 group=category,
                 file_path=pdf_path,
                 tags=all_tags,
-                test_rules=layout_rules + parse_rules,
+                test_rules=layout_rules,
                 ontology=layout_rules[0].get("ontology"),
                 page_index=layout_rules[0].get("page_index", 0),
             )
         else:
-            # Parse test case — only coerce parse rules (layout rules handled separately)
-            typed_rules = coerce_parse_rule_list(parse_rules)
+            # ParseTestCase.test_rules type-routes layout/extract_field/parse
+            # entries, and only this branch carries expected_markdown and the
+            # table settings. _evaluate_multi_task splits them back out to score.
             tc = ParseTestCase(
                 test_id=test_id,
                 group=category,
                 file_path=pdf_path,
                 tags=all_tags,
-                test_rules=typed_rules,
+                test_rules=layout_rules + parse_rules,
                 expected_markdown=expected_md,
                 allow_splitting_ambiguous_merged_tables=rule_meta.get("allow_splitting_ambiguous_merged_tables", False),
                 trm_unsupported=rule_meta.get("trm_unsupported", False),
