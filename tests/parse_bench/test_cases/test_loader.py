@@ -43,13 +43,7 @@ def _rule_types(test_case: ParseTestCase | LayoutDetectionTestCase) -> list[str]
 
 
 def test_layout_doc_with_order_rule_keeps_both_rule_kinds(tmp_path: Path) -> None:
-    """A document with layout *and* parse ground truth must keep every rule.
-
-    The layout rules used to be dropped on the floor here while the run still
-    reported success. They are kept on a ``ParseTestCase`` — the only branch
-    that also carries the parse-side state — and the evaluation runner splits
-    them back out by type for scoring.
-    """
+    """Layout rules were dropped when the doc also had parse rules."""
     _with_pdf(tmp_path, "doc1")
     _write_jsonl(
         tmp_path,
@@ -75,13 +69,7 @@ def test_layout_doc_with_order_rule_keeps_both_rule_kinds(tmp_path: Path) -> Non
 
 
 def test_mixed_doc_keeps_expected_markdown_and_table_settings(tmp_path: Path) -> None:
-    """Adding a layout rule must not silently reset a document's table scoring.
-
-    ``expected_markdown`` drives text similarity, TEDS and GriTS, and the three
-    table settings govern the title-strip and TRM fallback behaviour. None of
-    them exist on ``LayoutDetectionTestCase``, so routing a mixed document
-    there would drop them without an error.
-    """
+    """LayoutDetectionTestCase has no expected_markdown or table settings."""
     _with_pdf(tmp_path, "doc2")
     _write_jsonl(
         tmp_path,
@@ -122,12 +110,10 @@ def test_mixed_doc_keeps_expected_markdown_and_table_settings(tmp_path: Path) ->
 
 
 def test_layout_doc_with_only_expected_markdown_stays_layout_shaped(tmp_path: Path) -> None:
-    """An ``expected_markdown`` row is not a rule, so this stays pure layout.
+    """An expected_markdown row is not a rule, so _has_mixed_rules is False.
 
-    The markdown is dropped here, which is a real (pre-existing) gap. Routing
-    the document to the ``ParseTestCase`` branch to keep it would be worse:
-    ``_has_mixed_rules`` looks for a non-layout *rule*, finds none, and the
-    document would lose its layout scoring instead.
+    The markdown is dropped here; that is pre-existing. Moving the doc to the
+    ParseTestCase branch to keep it would drop its layout scoring instead.
     """
     _with_pdf(tmp_path, "doc3")
     _write_jsonl(
@@ -153,14 +139,10 @@ def test_layout_doc_with_only_expected_markdown_stays_layout_shaped(tmp_path: Pa
 
 
 def test_mixed_doc_with_an_extract_field_rule_loads(tmp_path: Path) -> None:
-    """The load must not raise on a rule type the layout case cannot hold.
+    """Loading, not scoring: ParseEvaluator filters ExtractFieldTestRule out.
 
-    This is about dataset loading, not scoring — ``ParseEvaluator`` filters
-    ``ExtractFieldTestRule`` out, so the rule is carried but not yet scored on
-    this path. The point is that the closed ``LayoutDetectionTestCase.test_rules``
-    union raises here, and the exception propagates out of
-    ``_load_jsonl_dataset`` and aborts the whole run, unrelated documents
-    included.
+    LayoutDetectionTestCase.test_rules is a closed union, so the same payload
+    raises there and aborts the whole _load_jsonl_dataset call.
     """
     _with_pdf(tmp_path, "doc4")
     _write_jsonl(

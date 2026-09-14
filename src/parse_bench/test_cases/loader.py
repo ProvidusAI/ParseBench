@@ -248,12 +248,9 @@ def _load_jsonl_dataset(root_dir: Path) -> list[TestCase]:
         all_tags = [category] + [t for t in extra_tags if t != category]
 
         if layout_rules and not parse_rules:
-            # Pure layout test case. A document whose only parse-side ground
-            # truth is ``expected_markdown`` stays here too, even though that
-            # markdown is then dropped: routing it to the branch below would
-            # hand it to ``_has_mixed_rules``, which looks for a non-layout
-            # *rule* and would find none, so the document would lose its layout
-            # scoring instead — a worse trade.
+            # Pure layout. An expected_markdown-only doc belongs here too: it has
+            # no non-layout rule, so _has_mixed_rules is False in the else branch
+            # and its layout rules would go unscored.
             tc = LayoutDetectionTestCase(
                 test_id=test_id,
                 group=category,
@@ -264,18 +261,9 @@ def _load_jsonl_dataset(root_dir: Path) -> list[TestCase]:
                 page_index=layout_rules[0].get("page_index", 0),
             )
         else:
-            # Anything with parse-side ground truth — parse rules, markdown, or
-            # both — loads as a ParseTestCase carrying *all* of its rules.
-            # ``ParseTestCase.test_rules`` type-routes each entry (layout,
-            # extract_field, parse) through ``_coerce_mixed_rule_list``, and it
-            # is the only branch that carries ``expected_markdown`` and the
-            # table settings. Routing a mixed document to
-            # ``LayoutDetectionTestCase`` instead would keep the layout rules
-            # but silently drop those, and its rule union is closed, so an
-            # extension or extract_field rule would fail validation outright.
-            # The evaluation runner splits the rules by type
-            # (``_has_mixed_rules`` -> ``_evaluate_multi_task``), so the layout
-            # half is still scored from here.
+            # ParseTestCase.test_rules type-routes layout/extract_field/parse
+            # entries, and only this branch carries expected_markdown and the
+            # table settings. _evaluate_multi_task splits them back out to score.
             tc = ParseTestCase(
                 test_id=test_id,
                 group=category,
