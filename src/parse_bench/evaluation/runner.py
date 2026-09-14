@@ -38,7 +38,7 @@ from parse_bench.evaluation.layout_adapters import create_layout_adapter_for_res
 from parse_bench.evaluation.metric_aggregation import add_precision_recall_f1_aggregates
 from parse_bench.evaluation.stats import build_operational_stats
 from parse_bench.schemas.evaluation import EvaluationResult, EvaluationSummary, MetricValue
-from parse_bench.schemas.layout_detection_output import LayoutOutput
+from parse_bench.schemas.layout_detection_output import LayoutDetectionModel, LayoutOutput
 from parse_bench.schemas.pipeline_io import InferenceRequest, InferenceResult
 from parse_bench.schemas.product import ProductType
 from parse_bench.test_cases import load_test_cases
@@ -1773,52 +1773,61 @@ class EvaluationRunner:
             # that condition — a TypeError or an adapter bug still has to
             # surface as a failure, which is what _is_infra_failure sorts out.
             #
-            # When no adapter matches there is no ``LayoutOutput`` to score
-            # against and no model to name one after, so the layout half is
-            # left unscored for this document. Hand-rolling a zero instead
-            # would cover only ``layout_rule_pass_rate`` and leave the document
-            # out of mAP/AP/F1 entirely, inflating those averages over the
-            # surviving documents.
-            layout_output: LayoutOutput | None = None
+            # When no adapter matches, the provider emitted nothing the layout
+            # task can score, which is a genuine 0 — the same verdict
+            # _is_infra_failure reaches for a pure-layout document. Leaving
+            # the layout half unscored instead would drop this document from
+            # avg_AP50 / avg_mean_f1 / avg_layout_rule_pass_rate and inflate
+            # those averages over the surviving documents. Scoring an empty
+            # ``LayoutOutput`` (rather than hand-rolling a zero) lets the
+            # evaluator emit the full metric set with its own denominators.
+            layout_output: LayoutOutput
             try:
                 adapter = create_layout_adapter_for_result(inference_result)
                 layout_output = adapter.to_layout_output(inference_result)
             except ValueError as e:
                 if "not LayoutOutput" not in str(e):
                     raise
-                layout_output = None
+                layout_output = LayoutOutput(
+                    example_id=inference_result.request.example_id,
+                    pipeline_name=inference_result.pipeline_name,
+                    model=LayoutDetectionModel.NONE,
+                    image_width=1,
+                    image_height=1,
+                    predictions=[],
+                )
 
-            # An adapter that matched but found nothing to report *is* scoreable:
-            # the evaluator runs against the empty prediction set and returns a
-            # genuine 0 across the whole metric set, with the denominators it
-            # builds itself (localization and classification are separate
-            # checks, so an element count would under-count them). Previously
-            # this branch appended "Could not extract layout from PARSE output"
-            # and failed the whole result, taking the parse metrics with it.
-            if layout_output is not None:
-                layout_evaluator = self._evaluators.get("layout_detection")
-                if layout_evaluator:
-                    try:
-                        # Create synthetic inference result with layout output
-                        layout_inference_result = InferenceResult(
-                            request=inference_result.request,
-                            pipeline_name=inference_result.pipeline_name,
-                            product_type=ProductType.LAYOUT_DETECTION,
-                            raw_output=inference_result.raw_output,
-                            output=layout_output,
-                            started_at=inference_result.started_at,
-                            completed_at=inference_result.completed_at,
-                            latency_in_ms=inference_result.latency_in_ms,
+            # An empty prediction set — whether the adapter matched and found
+            # nothing, or no adapter matched at all — is scoreable: the
+            # evaluator returns a genuine 0 across the whole metric set, with
+            # the denominators it builds itself (localization and
+            # classification are separate checks, so an element count would
+            # under-count them). Previously this branch appended "Could not
+            # extract layout from PARSE output" and failed the whole result,
+            # taking the parse metrics with it.
+            layout_evaluator = self._evaluators.get("layout_detection")
+            if layout_evaluator:
+                try:
+                    # Create synthetic inference result with layout output
+                    layout_inference_result = InferenceResult(
+                        request=inference_result.request,
+                        pipeline_name=inference_result.pipeline_name,
+                        product_type=ProductType.LAYOUT_DETECTION,
+                        raw_output=inference_result.raw_output,
+                        output=layout_output,
+                        started_at=inference_result.started_at,
+                        completed_at=inference_result.completed_at,
+                        latency_in_ms=inference_result.latency_in_ms,
+                    )
+                    layout_result = layout_evaluator.evaluate(layout_inference_result, temp_layout_test_case)
+                    all_metrics.extend(
+                        _drop_parse_owned_metric_aliases(
+                            list(layout_result.metrics),
+                            {metric.metric_name for metric in all_metrics},
                         )
-                        layout_result = layout_evaluator.evaluate(layout_inference_result, temp_layout_test_case)
-                        all_metrics.extend(
-                            _drop_parse_owned_metric_aliases(
-                                list(layout_result.metrics),
-                                {metric.metric_name for metric in all_metrics},
-                            )
-                        )
-                    except Exception as e:
-                        errors.append(f"Layout evaluation error: {e}")
+                    )
+                except Exception as e:
+                    errors.append(f"Layout evaluation error: {e}")
 
         stats = build_operational_stats(inference_result)
 

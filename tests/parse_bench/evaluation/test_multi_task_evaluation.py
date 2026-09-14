@@ -86,10 +86,34 @@ def test_markdown_only_provider_keeps_the_parse_metrics_it_earned(tmp_path: Path
     metrics = {m.metric_name: m.value for m in result.metrics}
     assert metrics["rule_present_pass_rate"] == 1.0
     assert metrics["rule_pass_rate"] == 1.0
-    # The layout half is left unscored for this document rather than scored with
-    # a partial hand-rolled zero, which would leave it out of mAP/AP/F1 while
-    # appearing in the rule metrics.
-    assert "layout_rule_pass_rate" not in metrics
+    # The layout half is a genuine zero across the full metric set, so the
+    # document stays in the mAP/AP/F1 denominators instead of dropping out and
+    # inflating the averages over the documents that did emit layout.
+    assert metrics["layout_rule_pass_rate"] == 0.0
+    assert metrics["AP50"] == 0.0
+    assert metrics["mean_f1"] == 0.0
+
+
+def test_missing_layout_counts_as_zero_in_the_aggregate(tmp_path: Path, monkeypatch: Any) -> None:
+    """One perfect document plus one with no layout must not aggregate to 100%."""
+    runner = EvaluationRunner(output_dir=tmp_path)
+
+    monkeypatch.setattr(
+        "parse_bench.evaluation.runner.create_layout_adapter_for_result",
+        lambda _result: _StubLayoutAdapter(),
+    )
+    perfect = runner._evaluate_single(_markdown_only_result(), _mixed_parse_test_case(), None, "multi_task")
+    monkeypatch.undo()
+    missing = runner._evaluate_single(
+        _markdown_only_result(), _mixed_parse_test_case(test_id="table/doc2"), None, "multi_task"
+    )
+
+    assert perfect.success and missing.success
+    aggregate = runner._aggregate_metrics([perfect, missing])
+    assert aggregate["avg_AP50"] == 0.5
+    assert aggregate["avg_mean_f1"] == 0.5
+    assert aggregate["avg_layout_rule_pass_rate"] == 0.5
+    assert aggregate["avg_rule_pass_rate"] == 1.0
 
 
 def test_a_real_adapter_failure_still_fails_the_result(tmp_path: Path, monkeypatch: Any) -> None:
@@ -154,13 +178,18 @@ def test_parse_half_inherits_document_scoped_parse_config(tmp_path: Path, monkey
 
 
 class _StubLayoutAdapter:
-    """Returns a layout payload for any inference result."""
+    """Returns a layout payload for any inference result.
+
+    Uses a string-labelled model (CHUNKR) rather than LLAMAPARSE: the LlamaParse
+    label mapper lazily imports ``llama_cloud``, which is only installed with the
+    ``runners`` extra.
+    """
 
     def to_layout_output(self, inference_result: InferenceResult, **_: Any) -> LayoutOutput:
         return LayoutOutput(
             example_id=inference_result.request.example_id,
             pipeline_name=inference_result.pipeline_name,
-            model=LayoutDetectionModel.LLAMAPARSE,
+            model=LayoutDetectionModel.CHUNKR,
             image_width=100,
             image_height=100,
             predictions=[LayoutPrediction(bbox=[0.0, 0.0, 50.0, 50.0], score=1.0, label="Text", page=1)],
@@ -174,7 +203,7 @@ class _EmptyLayoutAdapter:
         return LayoutOutput(
             example_id=inference_result.request.example_id,
             pipeline_name=inference_result.pipeline_name,
-            model=LayoutDetectionModel.LLAMAPARSE,
+            model=LayoutDetectionModel.CHUNKR,
             image_width=100,
             image_height=100,
             predictions=[],
