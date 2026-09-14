@@ -53,6 +53,10 @@ _PRODUCTION_URL = "https://api.cohere.com/v2/parse"
 
 _SUPPORTED_EXTENSIONS = {".pdf", ".png", ".jpg", ".jpeg", ".webp", ".tiff", ".bmp", ".jfif"}
 
+# Cohere Parse emits VE bounding-box coordinates on a normalized 0–1000 grid,
+# not in image pixels.
+_COORD_SCALE = 1000.0
+
 
 # ---------------------------------------------------------------------------
 # Visual-element parsing
@@ -182,10 +186,12 @@ def _build_layout_pages(
         items: list[LayoutItemIR] = []
         for li in layout_items:
             x1, y1, x2, y2 = li["bbox_px"]
-            nx = max(0.0, min(1.0, x1 / img_w))
-            ny = max(0.0, min(1.0, y1 / img_h))
-            nw = max(0.0, min(1.0, (x2 - x1) / img_w))
-            nh = max(0.0, min(1.0, (y2 - y1) / img_h))
+            # Cohere Parse emits bbox coords on a normalized 0-1000 grid,
+            # not image pixels — normalize by _COORD_SCALE, not img_w/img_h.
+            nx = max(0.0, min(1.0, x1 / _COORD_SCALE))
+            ny = max(0.0, min(1.0, y1 / _COORD_SCALE))
+            nw = max(0.0, min(1.0, (x2 - x1) / _COORD_SCALE))
+            nh = max(0.0, min(1.0, (y2 - y1) / _COORD_SCALE))
             item_kind, label = _TYPE_TO_LAYOUT.get(li["type"], ("text", "Text"))
             seg = LayoutSegmentIR(x=nx, y=ny, w=nw, h=nh, confidence=1.0, label=label)
             items.append(LayoutItemIR(type=item_kind, value=li["md"], bbox=seg, layout_segments=[seg]))

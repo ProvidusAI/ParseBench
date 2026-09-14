@@ -1491,7 +1491,9 @@ class CohereParseLayoutAdapter(LayoutAdapter):
                 for seg in item.layout_segments:
                     label = seg.label or item.type or "Text"
 
-                    # Cohere Parse stores normalized [0,1] xywh; convert to pixel xyxy.
+                    # Cohere Parse VE coords are normalized to [0,1] (from a
+                    # 0-1000 grid in the raw API output); convert to pixel xyxy
+                    # using the page's pixel dimensions.
                     x1 = seg.x * page_w
                     y1 = seg.y * page_h
                     x2 = x1 + seg.w * page_w
