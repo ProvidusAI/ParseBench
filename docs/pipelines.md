@@ -110,6 +110,8 @@ These pipelines use hosted APIs. You only need an API key in your `.env` file.
 | Pipeline | Description | Env Var |
 |---|---|---|
 | `glm_5_3_flash_parse_with_layout_file` | GLM-5.3 Flash, parse + layout, file mode | `GLM_ZAI_API_KEY` |
+| `deepseek_v4_1_flash_parse_with_layout` | DeepSeek-V4.1-Flash, parse + layout, thinking high | `DEEPSEEK_API_KEY` |
+| `deepseek_v4_1_flash_no_thinking_parse_with_layout` | DeepSeek-V4.1-Flash, parse + layout, thinking disabled | `DEEPSEEK_API_KEY` |
 
 ### Azure Document Intelligence
 
