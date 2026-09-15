@@ -22,8 +22,11 @@ Self-consistency is necessary; it does not prove that an annotation matches its 
   are not. Ordinary code bodies and table cells are included. Generated `mermaid`
   and `description` fences are excluded. Language labels and markup are excluded.
 - Structured page headers and footers join the corresponding page body for these
-  content rules. An identical boundary copy is counted once; body repetitions are
-  retained. Header/footer classification and other structural rules remain separate.
+  content rules only when the test case sets `"fold_page_sections": true` (every
+  `text_extended/v2.1` test.json does; the harness forwards it as the
+  `fold_page_sections` compute kwarg). Other suites score the delivered body only.
+  An identical boundary copy is counted once; body repetitions are retained.
+  Header/footer classification and other structural rules remain separate.
 - Word bags use NFC and lowercase. Single letters and digits are retained, so answer
   letters count. Underscores delimit identifiers. CJK is measured in characters;
   Latin/Indic runs remain tokens with combining marks preserved. This measures
