@@ -188,9 +188,14 @@ def reference_rules(markdown: str) -> list[dict]:
     return rules
 
 
-def delivered_markdown(markdown: str, output: ParseOutput | None) -> str:
-    """Include structured page sections once; preserve real repetitions in the body."""
-    if output is None or not output.pages or not output.layout_pages:
+def delivered_markdown(markdown: str, output: ParseOutput | None, *, fold_page_sections: bool = False) -> str:
+    """Include structured page sections once; preserve real repetitions in the body.
+
+    Folding is a dataset decision, carried by ``fold_page_sections`` on the test
+    case: a reference authored with headers and footers inside the page body
+    (text_extended v2.1) needs it, every other suite keeps scoring the body only.
+    """
+    if not fold_page_sections or output is None or not output.pages or not output.layout_pages:
         return markdown
     page_body = "\n".join(page.markdown for page in output.pages)
     if sequence(visible_text(markdown)) != sequence(visible_text(page_body)):
@@ -221,8 +226,12 @@ def delivered_markdown(markdown: str, output: ParseOutput | None) -> str:
 class VisibleTextBagRule(ParseTestRule):
     """Opt-in scoring with one reference/prediction projection and explicit counts."""
 
+    # Injected by RuleBasedMetric._prepare_rule from the ``fold_page_sections`` compute kwarg.
+    fold_page_sections: bool = False
+
     def run(self, md_content: str, normalized_content: str | None = None) -> tuple[bool, str, float]:
-        text = visible_text(delivered_markdown(md_content, self.parse_output))
+        delivered = delivered_markdown(md_content, self.parse_output, fold_page_sections=self.fold_page_sections)
+        text = visible_text(delivered)
         kind = "digit" if self.type == "bag_of_digit_percent" else ("sentence" if "sentence" in self.type else "word")
         expected = Counter(self._rule_data.get(f"bag_of_{kind}", {}))
         if not expected or any(not isinstance(n, int) or n < 1 for n in expected.values()):

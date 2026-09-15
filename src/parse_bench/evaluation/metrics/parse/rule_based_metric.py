@@ -134,6 +134,8 @@ class RuleBasedMetric(Metric):
         parse_output = kwargs.get("parse_output")
         if isinstance(parse_output, ParseOutput) and hasattr(rule, "parse_output"):
             rule.parse_output = parse_output
+        if hasattr(rule, "fold_page_sections"):
+            rule.fold_page_sections = bool(kwargs.get("fold_page_sections", False))
 
         raw_output = kwargs.get("raw_output")
         if isinstance(raw_output, dict) and getattr(rule, "raw_output", _ABSENT) is None:
@@ -201,7 +203,13 @@ class RuleBasedMetric(Metric):
         if not actual and any(rule.get("text_normalization") == "text-v2.1" for rule in rules_to_run):
             from parse_bench.evaluation.metrics.parse.text_v21 import delivered_markdown
 
-            has_delivered_text = bool(delivered_markdown(actual or "", kwargs.get("parse_output")).strip())
+            has_delivered_text = bool(
+                delivered_markdown(
+                    actual or "",
+                    kwargs.get("parse_output"),
+                    fold_page_sections=bool(kwargs.get("fold_page_sections", False)),
+                ).strip()
+            )
         if not actual and not has_delivered_text:
             # Blank output fails every rule. Emit full per-rule metadata so the
             # judge metric and per-type pass rates include this doc (otherwise
