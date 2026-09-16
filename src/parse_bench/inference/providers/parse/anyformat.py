@@ -234,7 +234,6 @@ class AnyformatProvider(Provider):
     def credit_rate_usd(self) -> float:
         return self._credit_rate_usd
 
-
     def _client(self) -> Any:
         if self._http is None:
             import httpx
@@ -367,7 +366,6 @@ class AnyformatProvider(Provider):
         raise ProviderTransientError(
             f"anyformat run {run_id} did not finish within {self._job_timeout:.0f}s. Last state: {last}"
         )
-
 
     def run_inference(self, pipeline: PipelineSpec, request: InferenceRequest) -> RawInferenceResult:
         if request.product_type != ProductType.PARSE:

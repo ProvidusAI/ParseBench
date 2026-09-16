@@ -22,9 +22,7 @@ from parse_bench.schemas.product import ProductType
 def _result(items: list[LayoutItemIR]) -> InferenceResult:
     now = datetime.now()
     return InferenceResult(
-        request=InferenceRequest(
-            example_id="doc-1", source_file_path="/tmp/doc-1.pdf", product_type=ProductType.PARSE
-        ),
+        request=InferenceRequest(example_id="doc-1", source_file_path="/tmp/doc-1.pdf", product_type=ProductType.PARSE),
         pipeline_name="anyformat_standard",
         product_type=ProductType.PARSE,
         raw_output={"results": {}},
