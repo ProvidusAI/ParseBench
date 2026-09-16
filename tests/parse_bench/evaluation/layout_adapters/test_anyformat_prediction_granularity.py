@@ -1,4 +1,4 @@
-"""A merged anyformat block is scored whole and by its detections; an unmerged one once."""
+"""An anyformat block is scored by its detections, one prediction each; the block itself is not a box."""
 
 from __future__ import annotations
 
@@ -48,7 +48,7 @@ def _region(y: float, text: str) -> LayoutRegionIR:
     )
 
 
-def test_a_block_of_two_detections_is_scored_at_both_levels():
+def test_a_block_of_two_detections_yields_one_prediction_per_detection():
     item = LayoutItemIR(
         type="text",
         value="Alpha Beta",
@@ -58,8 +58,11 @@ def test_a_block_of_two_detections_is_scored_at_both_levels():
 
     predictions = AnyformatLayoutAdapter().to_layout_output(_result([item])).predictions
 
-    assert [p.content.text for p in predictions] == ["Alpha Beta", "Alpha", "Beta"]
-    assert predictions[0].bbox == pytest.approx([100.0, 100.0, 300.0, 250.0])
+    assert [p.content.text for p in predictions] == ["Alpha", "Beta"]
+    assert [p.bbox for p in predictions] == [
+        pytest.approx([100.0, 100.0, 300.0, 150.0]),
+        pytest.approx([100.0, 200.0, 300.0, 250.0]),
+    ]
 
 
 def test_a_block_of_one_detection_is_scored_once():

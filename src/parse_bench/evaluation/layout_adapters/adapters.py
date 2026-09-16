@@ -1785,26 +1785,6 @@ class AnyformatLayoutAdapter(LayoutAdapter):
                     or item.layout_segments
                     or ([item.bbox] if item.bbox is not None else [])
                 )
-                # The ground truth annotates a figure both whole and by its parts, so a block of
-                # several detections is scored at both levels.
-                item_box = [
-                    min(sg.x for sg in segments) * page_w,
-                    min(sg.y for sg in segments) * page_h,
-                    max(sg.x + sg.w for sg in segments) * page_w,
-                    max(sg.y + sg.h for sg in segments) * page_h,
-                ]
-                if len(segments) > 1:
-                    block_label = (item.bbox.label if item.bbox is not None else None) or item.type or "Text"
-                    predictions.append(
-                        LayoutPrediction(
-                            bbox=item_box,
-                            score=1.0,
-                            label=block_label,
-                            page=lp.page_number,
-                            content=_build_vendor_content(block_label, item.value),
-                            provider_metadata={"order_index": len(predictions)},
-                        )
-                    )
                 for region_index, seg in enumerate(segments):
                     label = seg.label or item.type or "Text"
                     text = region_texts[region_index] if region_index < len(region_texts) else ""
