@@ -63,6 +63,26 @@ class _GranularPage:
     cells: list[_GranularTextUnit] = field(default_factory=list)
 
 
+def _raw_output_page_field_is_list(raw_output: Any, field: str) -> bool:
+    """True when raw_output has a non-empty top-level "pages" list whose first
+    entry carries `field` as a list.
+
+    Several parse providers land on the identical ParseOutput.layout_pages
+    representation, so once create_layout_adapter_for_result's shape-matcher
+    fallback is running (registry.py), the type alone cannot tell them apart.
+    The raw payload still can: kdl_frontier_nano (and its florin_parser_nano /
+    rakedoc_nano forks) emit `{"pages": [{"elements": [...]}]}`, distinct from
+    LlamaParse's `{"pages": [{"items": [...]}]}`.
+    """
+    if not isinstance(raw_output, dict):
+        return False
+    pages = raw_output.get("pages")
+    if not isinstance(pages, list) or not pages:
+        return False
+    first_page = pages[0]
+    return isinstance(first_page, dict) and isinstance(first_page.get(field), list)
+
+
 @register_layout_adapter("__default__", priority=-100)
 class NormalizedLayoutOutputAdapter(LayoutAdapter):
     """Adapter for providers that already emit `LayoutOutput`."""
@@ -102,7 +122,9 @@ class LlamaParseLayoutAdapter(LayoutAdapter):
     @classmethod
     def matches(cls, inference_result: InferenceResult) -> bool:
         if isinstance(inference_result.output, ParseOutput):
-            if len(inference_result.output.layout_pages) > 0 or len(inference_result.output.grounded_pages) > 0:
+            if (
+                len(inference_result.output.layout_pages) > 0 or len(inference_result.output.grounded_pages) > 0
+            ) and not _raw_output_page_field_is_list(inference_result.raw_output, "elements"):
                 return True
 
         if (
@@ -1608,7 +1630,12 @@ class OIParserLayoutAdapter(LayoutAdapter):
 
     @classmethod
     def matches(cls, inference_result: InferenceResult) -> bool:
-        return isinstance(inference_result.output, ParseOutput) and bool(inference_result.output.layout_pages)
+        if not (isinstance(inference_result.output, ParseOutput) and bool(inference_result.output.layout_pages)):
+            return False
+        # oi-parser's own raw response nests everything under "output" (see
+        # normalize() below) and never carries a top-level "pages" list of
+        # "elements", so this only ever excludes a genuinely kdl-shaped payload.
+        return not _raw_output_page_field_is_list(inference_result.raw_output, "elements")
 
     def to_layout_output(
         self,
@@ -3041,7 +3068,15 @@ class KdlFrontierNanoLayoutAdapter(LayoutAdapter):
     @classmethod
     def matches(cls, inference_result: InferenceResult) -> bool:
         out = inference_result.output
-        return isinstance(out, ParseOutput) and bool(out.layout_pages)
+        if not (isinstance(out, ParseOutput) and bool(out.layout_pages)):
+            return False
+        raw_output = inference_result.raw_output
+        if isinstance(raw_output, dict) and raw_output:
+            # Real inference carries the provider's raw response, which is the
+            # only place left to tell this provider apart from LlamaParse/
+            # oi-parser once they all agree on ParseOutput.layout_pages.
+            return _raw_output_page_field_is_list(raw_output, "elements")
+        return True
 
     def to_layout_output(
         self,
