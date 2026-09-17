@@ -74,9 +74,9 @@ _DEFAULT_JOB_TIMEOUT_SECONDS = 900.0
 _MODES = ("standard", "agentic", "lite", "flash")
 # Public list price in credits per page, per tier (docs/concepts/how-credits-work).
 CREDITS_PER_PAGE: dict[str, int] = {"flash": 7, "lite": 12, "standard": 25, "agentic": 100}
-# Business-plan list price, EUR 0.001 per credit, at the ECB EUR/USD reference rate of
-# 2026-09-10 (1.1616): USD 0.029 for a page of `standard`.
-DEFAULT_CREDIT_RATE_USD = 0.001 * 1.1616
+# Pay-as-you-go list price, EUR 0.0015 per credit, at the ECB EUR/USD reference rate of
+# 2026-09-16 (1.1537): USD 0.043 for a page of `standard`.
+DEFAULT_CREDIT_RATE_USD = 0.0015 * 1.1537
 
 # Layout coordinates are stored normalized in [0, 1]; the evaluator scales them to this frame.
 _VIRTUAL_PAGE_DIM = 1000.0
