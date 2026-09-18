@@ -1192,6 +1192,33 @@ def register_parse_pipelines(register_fn) -> None:  # type: ignore[no-untyped-de
     )
 
     # =========================================================================
+    # Jina-OCR-v1 (DeepSeek-OCR fine-tune, 3B MoE + FastMTP speculative decoding)
+    # =========================================================================
+
+    register_fn(
+        PipelineSpec(
+            pipeline_name="jinaocr_vllm",
+            provider_name="jinaocr",
+            product_type=ProductType.PARSE,
+            config={
+                "server_url": "",  # Set via JINAOCR_SERVER_URL or override
+                # The model card's recommended default prompt, plus a chart clause.
+                # The bare default renders charts as a "![Chart: ...]" placeholder,
+                # which scores 0 on chart_data_point even though the model can read
+                # the values off the plot when asked. The card's other documented
+                # prompt — the OmniDocBench one — is the wrong direction here: it
+                # instructs the model to ignore all graphical content.
+                "prompt": (
+                    "Transcribe the provided document image into a clean Markdown format, "
+                    "preserving the natural reading order. Convert every table into an HTML table. "
+                    "Convert every chart or graph into an HTML table of its underlying data values, "
+                    "including the axis and series labels."
+                ),
+            },
+        )
+    )
+
+    # =========================================================================
     # Unlimited-OCR (baidu/Unlimited-OCR, DeepSeek-OCR successor with grounding)
     # =========================================================================
 
