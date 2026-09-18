@@ -1192,6 +1192,33 @@ def register_parse_pipelines(register_fn) -> None:  # type: ignore[no-untyped-de
     )
 
     # =========================================================================
+    # Jina-OCR-v1 (DeepSeek-OCR fine-tune, 3B MoE + FastMTP speculative decoding)
+    # =========================================================================
+
+    register_fn(
+        PipelineSpec(
+            pipeline_name="jinaocr_vllm",
+            provider_name="jinaocr",
+            product_type=ProductType.PARSE,
+            config={
+                "server_url": "",  # Set via JINAOCR_SERVER_URL or override
+                # The model card's recommended default prompt, plus a chart clause.
+                # The bare default renders charts as a "![Chart: ...]" placeholder,
+                # which scores 0 on chart_data_point even though the model can read
+                # the values off the plot when asked. The card's other documented
+                # prompt — the OmniDocBench one — is the wrong direction here: it
+                # instructs the model to ignore all graphical content.
+                "prompt": (
+                    "Transcribe the provided document image into a clean Markdown format, "
+                    "preserving the natural reading order. Convert every table into an HTML table. "
+                    "Convert every chart or graph into an HTML table of its underlying data values, "
+                    "including the axis and series labels."
+                ),
+            },
+        )
+    )
+
+    # =========================================================================
     # Unlimited-OCR (baidu/Unlimited-OCR, DeepSeek-OCR successor with grounding)
     # =========================================================================
 
@@ -1217,6 +1244,45 @@ def register_parse_pipelines(register_fn) -> None:  # type: ignore[no-untyped-de
                 "model": "glm-5.3-flash",
                 "max_tokens": 32768,
                 "mode": "parse_with_layout_file",
+            },
+        )
+    )
+
+    # =========================================================================
+    # DeepSeek-V4.1-Flash
+    # =========================================================================
+
+    # The API model id is the unversioned alias "deepseek-flash", which currently
+    # serves DeepSeek-V4.1-Flash; the pipeline names pin the version benched.
+    # DeepSeek's image input takes JPEG/PNG/GIF/WebP only — there is no PDF
+    # content block — so these are image pipelines, with no _file counterpart.
+    # Thinking is on by default at "high" effort; the no_thinking variant turns
+    # it off outright rather than asking for reasoning_effort "none".
+    register_fn(
+        PipelineSpec(
+            pipeline_name="deepseek_v4_1_flash_parse_with_layout",
+            provider_name="deepseek",
+            product_type=ProductType.PARSE,
+            config={
+                "model": "deepseek-flash",
+                "max_tokens": 32768,
+                "mode": "parse_with_layout",
+                "thinking": "enabled",
+                "reasoning_effort": "high",
+            },
+        )
+    )
+
+    register_fn(
+        PipelineSpec(
+            pipeline_name="deepseek_v4_1_flash_no_thinking_parse_with_layout",
+            provider_name="deepseek",
+            product_type=ProductType.PARSE,
+            config={
+                "model": "deepseek-flash",
+                "max_tokens": 32768,
+                "mode": "parse_with_layout",
+                "thinking": "disabled",
             },
         )
     )
@@ -2631,6 +2697,20 @@ def register_parse_pipelines(register_fn) -> None:  # type: ignore[no-untyped-de
             config={},
         )
     )
+
+    # =========================================================================
+    # anyformat (hosted v3 API, one-node parse workflow per tier)
+    # =========================================================================
+    for tier in ("standard", "agentic", "lite", "flash"):
+        register_fn(
+            PipelineSpec(
+                pipeline_name=f"anyformat_{tier}",
+                provider_name="anyformat",
+                product_type=ProductType.PARSE,
+                config={"mode": tier},
+                per_file_timeout=900.0,
+            )
+        )
 
     # Nutrient DWS Data Extraction (hosted API), one pipeline per mode.
     # Credits per page: text 1.0, structure 1.5, understand 9.0, agentic 18.0.

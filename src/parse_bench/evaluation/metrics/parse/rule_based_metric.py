@@ -12,7 +12,9 @@ scores extra rule types subclasses the metric and extends ``_prepare_rule``.
 
 import os
 import signal
+import threading
 import time
+import warnings
 from collections import Counter
 from dataclasses import dataclass, field
 from typing import Any, cast
@@ -134,6 +136,8 @@ class RuleBasedMetric(Metric):
         parse_output = kwargs.get("parse_output")
         if isinstance(parse_output, ParseOutput) and hasattr(rule, "parse_output"):
             rule.parse_output = parse_output
+        if hasattr(rule, "fold_page_sections"):
+            rule.fold_page_sections = bool(kwargs.get("fold_page_sections", False))
 
         raw_output = kwargs.get("raw_output")
         if isinstance(raw_output, dict) and getattr(rule, "raw_output", _ABSENT) is None:
@@ -164,6 +168,11 @@ class RuleBasedMetric(Metric):
     ) -> MetricValue:
         """
         Execute test rules against markdown content.
+
+        Outside the main thread, or without SIGALRM, emit RuntimeWarning and
+        evaluate without interrupting individual rules/normalization. The
+        document budget is cooperative between rules; use process isolation
+        when a hard external deadline is required.
 
         :param expected: List of test rule definitions (from test_rules)
         :param actual: Actual markdown content to test
@@ -197,7 +206,18 @@ class RuleBasedMetric(Metric):
                 metadata={"note": f"No test rules for page {page}"},
             )
 
-        if not actual:
+        has_delivered_text = False
+        if not actual and any(rule.get("text_normalization") == "text-v2.1" for rule in rules_to_run):
+            from parse_bench.evaluation.metrics.parse.text_v21 import delivered_markdown
+
+            has_delivered_text = bool(
+                delivered_markdown(
+                    actual or "",
+                    kwargs.get("parse_output"),
+                    fold_page_sections=bool(kwargs.get("fold_page_sections", False)),
+                ).strip()
+            )
+        if not actual and not has_delivered_text:
             # Blank output fails every rule. Emit full per-rule metadata so the
             # judge metric and per-type pass rates include this doc (otherwise
             # blank-output docs silently drop out of the aggregate averages,
@@ -269,8 +289,18 @@ class RuleBasedMetric(Metric):
                 "explanation": explanation,
             }
 
-        # Use signal.alarm for per-rule timeout (Unix only, main thread of worker process)
-        use_alarm = hasattr(signal, "SIGALRM")
+        # Signal handlers are process-global and may only be installed from the
+        # main thread. Direct evaluator users may instead be in a thread pool.
+        use_alarm = hasattr(signal, "SIGALRM") and threading.current_thread() is threading.main_thread()
+        if not use_alarm:
+            warnings.warn(
+                "Per-rule and normalization alarm timeouts are unavailable outside "
+                "the main thread or on platforms without SIGALRM. The document "
+                "budget is checked between rules and cannot interrupt running work. "
+                "Use process-isolated evaluation when an interruptible timeout is required.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
 
         # Pre-normalize content ONCE for all rules (major performance optimization).
         # Guard it with the per-rule timeout too: a pathological document (e.g. an
