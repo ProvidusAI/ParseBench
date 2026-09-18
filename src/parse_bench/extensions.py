@@ -8,6 +8,9 @@ products, rule types and output models without forking parse-bench:
   (e.g. question answering) with its own normalized output schema.
 - :func:`register_rule_type` — a new ``test_rules`` entry type: its pydantic
   schema and the class that scores it.
+- :func:`register_reference_thumbnailer` — how a rule's ``reference_image`` is
+  rendered into the detailed report (parse-bench ships no image stack, so it
+  renders no crop until a harness registers one).
 - :func:`register_layout_adapter` / :func:`register_layout_label_mapper` — how a
   provider's layout output maps onto the canonical ontology.
 - :func:`register_pipeline_resolver` — let the package resolve a result's
@@ -23,6 +26,7 @@ from parse_bench.evaluation.layout_adapters.registry import register_layout_adap
 from parse_bench.evaluation.layout_label_mappers.registry import register_layout_label_mapper
 from parse_bench.evaluation.metrics.parse.rules_base import (
     ParseTestRule,
+    register_reference_thumbnailer,
     register_rule_class,
     registered_rule_classes,
 )
@@ -65,6 +69,7 @@ __all__ = [
     "register_pipeline",
     "register_product_type",
     "register_provider",
+    "register_reference_thumbnailer",
     "register_rule_class",
     "register_rule_type",
     "register_parse_rule_model",

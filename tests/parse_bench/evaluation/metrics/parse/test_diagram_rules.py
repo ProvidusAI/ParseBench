@@ -9,7 +9,7 @@ from parse_bench.evaluation.metrics.parse.mermaid_graph import (
     graph_from_dict,
     parse_mermaid,
 )
-from parse_bench.evaluation.metrics.parse.rules_base import create_test_rule
+from parse_bench.evaluation.metrics.parse.rules_base import create_test_rule, register_reference_thumbnailer
 from parse_bench.evaluation.metrics.parse.rules_diagram import (
     DiagramCountRule,
     DiagramEdgeRule,
@@ -307,3 +307,68 @@ def test_graph_to_mermaid_round_trips_through_parser() -> None:
     assert {n.label for n in again.nodes.values()} == {n.label for n in expected.nodes.values()}
     assert len(again.edges) == len(expected.edges)
     assert again.groups == {"Back office": "Back office"}
+
+
+# --- reference_image thumbnails ------------------------------------------------------------
+
+
+def _rule_with_reference(tmp_path, filename: str = "crop.png") -> DiagramGraphRule:
+    """A graph rule whose ``reference_image`` resolves next to the test case."""
+    (tmp_path / filename).write_bytes(b"\x89PNG\r\n\x1a\n")
+    rule = DiagramGraphRule(_graph_rule(reference_image=filename))
+    rule.test_case_path = str(tmp_path / "doc.pdf")
+    return rule
+
+
+def test_graph_rule_scores_with_a_reference_image_and_no_thumbnailer(tmp_path) -> None:
+    """The default build carries no image stack: the crop is skipped, not fatal."""
+    rule = _rule_with_reference(tmp_path)
+    passed, expl, score = rule.run(CREATIVE_MD)
+    assert passed, expl
+    assert score == 1.0
+    expected = rule.result_details["expected"]
+    assert "thumb" not in expected
+    assert expected["reference_image"] == "crop.png"
+
+
+def test_registered_thumbnailer_renders_the_reference_crop(tmp_path) -> None:
+    seen: list[str] = []
+
+    def fake_thumbnailer(path):
+        seen.append(path.name)
+        return "data:image/jpeg;base64,AAAA"
+
+    register_reference_thumbnailer(fake_thumbnailer)
+    try:
+        rule = _rule_with_reference(tmp_path)
+        assert rule.run(CREATIVE_MD)[0]
+        assert rule.result_details["expected"]["thumb"] == "data:image/jpeg;base64,AAAA"
+        assert seen == ["crop.png"]
+    finally:
+        register_reference_thumbnailer(None)
+
+
+def test_a_failing_thumbnailer_costs_the_crop_not_the_score(tmp_path) -> None:
+    def boom(path):
+        raise RuntimeError("no image stack here")
+
+    register_reference_thumbnailer(boom)
+    try:
+        rule = _rule_with_reference(tmp_path)
+        passed, expl, score = rule.run(CREATIVE_MD)
+        assert passed, expl
+        assert score == 1.0
+        assert "thumb" not in rule.result_details["expected"]
+    finally:
+        register_reference_thumbnailer(None)
+
+
+def test_missing_reference_file_is_not_looked_up(tmp_path) -> None:
+    register_reference_thumbnailer(lambda path: pytest.fail("thumbnailer called for a missing file"))
+    try:
+        rule = DiagramGraphRule(_graph_rule(reference_image="absent.png"))
+        rule.test_case_path = str(tmp_path / "doc.pdf")
+        assert rule.run(CREATIVE_MD)[0]
+        assert "thumb" not in rule.result_details["expected"]
+    finally:
+        register_reference_thumbnailer(None)
