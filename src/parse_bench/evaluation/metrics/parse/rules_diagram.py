@@ -34,7 +34,7 @@ from parse_bench.evaluation.metrics.parse.mermaid_graph import (
     graph_from_dict,
     parse_mermaid,
 )
-from parse_bench.evaluation.metrics.parse.rules_base import ParseTestRule
+from parse_bench.evaluation.metrics.parse.rules_base import ParseTestRule, reference_thumbnail
 from parse_bench.evaluation.metrics.parse.test_types import TestType
 from parse_bench.evaluation.metrics.parse.utils import normalize_text
 from parse_bench.test_cases.parse_rule_schemas import (
@@ -395,10 +395,9 @@ class DiagramGraphRule(ParseTestRule):
             ],
             "axes": {},
         }
-        if ref_path is not None:
-            from parse_bench.evaluation.metrics.parse.rules_image import thumbnail_data_uri
-
-            details["expected"]["thumb"] = thumbnail_data_uri(ref_path)
+        thumb = reference_thumbnail(ref_path)
+        if thumb is not None:
+            details["expected"]["thumb"] = thumb
         self.result_details = details
         axes = details["axes"]
 
