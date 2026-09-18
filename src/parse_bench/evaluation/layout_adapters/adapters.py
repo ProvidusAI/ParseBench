@@ -3595,9 +3595,9 @@ _NUTRIENT_DWS_TO_LLAMAPARSE_V3_LABEL = {
 class NutrientDwsLayoutAdapter(LayoutAdapter):
     """Extract LayoutOutput from Nutrient DWS ``ParseOutput.layout_pages``.
 
-    DWS element ``bounds`` and the recorded page ``width``/``height`` are both in
-    PDF points, so boxes pass through unscaled as xyxy and the evaluator
-    normalizes by ``image_width``/``image_height`` — unlike
+    DWS reports each element's ``bounds`` and its page's ``width``/``height`` in
+    the same coordinate space, so boxes pass through unscaled as xyxy and the
+    evaluator normalizes by ``image_width``/``image_height`` — unlike
     ``DoclingParseLayoutAdapter``, there is no multiply. Labels are LlamaParse-V3
     strings, so ``model`` is LLAMAPARSE to select that label map.
     """
