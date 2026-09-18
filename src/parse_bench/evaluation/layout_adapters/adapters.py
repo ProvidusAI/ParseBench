@@ -3642,13 +3642,9 @@ class NutrientDwsLayoutAdapter(LayoutAdapter):
             for item_idx, item in enumerate(lp.items):
                 segments = item.layout_segments or ([item.bbox] if item.bbox is not None else [])
                 for seg_idx, seg in enumerate(segments):
-                    raw_label = _NUTRIENT_DWS_TO_LLAMAPARSE_V3_LABEL.get(
-                        seg.label or item.type or "Text", "text"
-                    )
+                    raw_label = _NUTRIENT_DWS_TO_LLAMAPARSE_V3_LABEL.get(seg.label or item.type or "Text", "text")
                     if item.type == "Table" and item.html:
-                        content: LayoutTextContent | LayoutTableContent | None = LayoutTableContent(
-                            html=item.html
-                        )
+                        content: LayoutTextContent | LayoutTableContent | None = LayoutTableContent(html=item.html)
                     elif item.value:
                         content = LayoutTextContent(text=item.value)
                     else:

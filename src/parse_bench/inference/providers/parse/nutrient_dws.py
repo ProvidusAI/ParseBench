@@ -117,9 +117,7 @@ class NutrientDwsProvider(Provider):
 
         mode = str(self.base_config.get("mode", "understand")).lower()
         if mode not in _MODES:
-            raise ProviderConfigError(
-                f"unknown DWS parse mode '{mode}'; expected one of {sorted(_MODES)}"
-            )
+            raise ProviderConfigError(f"unknown DWS parse mode '{mode}'; expected one of {sorted(_MODES)}")
         self._mode = mode
         self._spatial = mode in _SPATIAL_MODES
 
@@ -127,13 +125,10 @@ class NutrientDwsProvider(Provider):
         # from word flags (the default; word flags are only consumed here).
         # "hosted" grades output.markdown verbatim.
         body_source = str(
-            os.environ.get("NUTRIENT_DWS_BODY_SOURCE")
-            or self.base_config.get("body_source", "graph")
+            os.environ.get("NUTRIENT_DWS_BODY_SOURCE") or self.base_config.get("body_source", "graph")
         ).lower()
         if body_source not in ("graph", "hosted"):
-            raise ProviderConfigError(
-                f"body_source must be 'graph' or 'hosted', got '{body_source}'"
-            )
+            raise ProviderConfigError(f"body_source must be 'graph' or 'hosted', got '{body_source}'")
         self._body_source = body_source
         # `text` mode returns no elements at all, so there is no graph to render
         # from and the hosted markdown is the only possible body.
@@ -152,28 +147,15 @@ class NutrientDwsProvider(Provider):
             or _first_env("NUTRIENT_DWS_BASE_URL", "DWS_BASE_URL")
             or "https://api.nutrient.io"
         ).rstrip("/")
-        self._timeout = float(
-            os.environ.get("NUTRIENT_DWS_TIMEOUT_SECONDS")
-            or self.base_config.get("timeout_s", 600)
-        )
-        self._retry_count = int(
-            os.environ.get("NUTRIENT_DWS_RETRY_COUNT")
-            or self.base_config.get("retry_count", 5)
-        )
+        self._timeout = float(os.environ.get("NUTRIENT_DWS_TIMEOUT_SECONDS") or self.base_config.get("timeout_s", 600))
+        self._retry_count = int(os.environ.get("NUTRIENT_DWS_RETRY_COUNT") or self.base_config.get("retry_count", 5))
         self._retry_delay = float(
-            os.environ.get("NUTRIENT_DWS_RETRY_DELAY_SECONDS")
-            or self.base_config.get("retry_delay_s", 30)
+            os.environ.get("NUTRIENT_DWS_RETRY_DELAY_SECONDS") or self.base_config.get("retry_delay_s", 30)
         )
-        self._api_version = self.base_config.get("api_version") or os.environ.get(
-            "NUTRIENT_DWS_API_VERSION"
-        )
-        self._engine_version = self.base_config.get("engine_version") or os.environ.get(
-            "NUTRIENT_DWS_ENGINE_VERSION"
-        )
+        self._api_version = self.base_config.get("api_version") or os.environ.get("NUTRIENT_DWS_API_VERSION")
+        self._engine_version = self.base_config.get("engine_version") or os.environ.get("NUTRIENT_DWS_ENGINE_VERSION")
 
-        rate = os.environ.get("NUTRIENT_DWS_CREDIT_RATE_USD") or self.base_config.get(
-            "credit_rate_usd"
-        )
+        rate = os.environ.get("NUTRIENT_DWS_CREDIT_RATE_USD") or self.base_config.get("credit_rate_usd")
         self._credit_rate_usd = float(rate) if rate else self._DEFAULT_CREDIT_RATE_USD
 
     @property
@@ -218,9 +200,7 @@ class NutrientDwsProvider(Provider):
                 "instructions": (None, instructions, "application/json"),
             }
             try:
-                response = httpx.post(
-                    url, headers=self._headers(), files=files, timeout=self._timeout
-                )
+                response = httpx.post(url, headers=self._headers(), files=files, timeout=self._timeout)
             except httpx.TimeoutException as e:
                 last_detail = f"timeout after {self._timeout}s ({e})"
                 if attempt < self._retry_count:
@@ -251,9 +231,7 @@ class NutrientDwsProvider(Provider):
                 if attempt < self._retry_count:
                     time.sleep(self._backoff(response, attempt))
                     continue
-                raise ProviderTransientError(
-                    f"DWS parse HTTP {response.status_code}: {body}"
-                )
+                raise ProviderTransientError(f"DWS parse HTTP {response.status_code}: {body}")
             raise ProviderPermanentError(f"DWS parse HTTP {response.status_code}: {body}")
 
         raise ProviderTransientError(f"DWS parse retries exhausted: {last_detail}")
@@ -330,9 +308,15 @@ class NutrientDwsProvider(Provider):
         """
         words = el.get("words") or []
         if not any(
-            w.get("bold") or w.get("italic") or w.get("underlined") or w.get("underline")
-            or w.get("strikethrough") or w.get("strikeout") or w.get("mark")
-            or w.get("superscript") or w.get("subscript")
+            w.get("bold")
+            or w.get("italic")
+            or w.get("underlined")
+            or w.get("underline")
+            or w.get("strikethrough")
+            or w.get("strikeout")
+            or w.get("mark")
+            or w.get("superscript")
+            or w.get("subscript")
             for w in words
         ):
             return plain
@@ -366,8 +350,7 @@ class NutrientDwsProvider(Provider):
             # A script marker split from its base word sits flush against it — attach
             # without a space so markup-stripping reproduces the original text exactly.
             if prev is None or not (
-                curr.get("superscript") or curr.get("subscript")
-                or prev.get("superscript") or prev.get("subscript")
+                curr.get("superscript") or curr.get("subscript") or prev.get("superscript") or prev.get("subscript")
             ):
                 return False
             pb = prev.get("bounds") or {}
@@ -385,7 +368,7 @@ class NutrientDwsProvider(Provider):
                 j = i
                 while j + 1 < len(line) and key == _key(line[j + 1]):
                     j += 1
-                run_words = line[i:j + 1]
+                run_words = line[i : j + 1]
                 run = " ".join((w.get("text") or "") for w in run_words).strip()
                 first_word = run_words[0]
                 i = j + 1
@@ -458,10 +441,7 @@ class NutrientDwsProvider(Provider):
             return table
         caption = " ".join(
             text
-            for text in (
-                ((by_id.get(cid) or {}).get("text") or "").strip()
-                for cid in (el.get("captionIds") or [])
-            )
+            for text in (((by_id.get(cid) or {}).get("text") or "").strip() for cid in (el.get("captionIds") or []))
             if text
         )
         # `summary` is the VLM's own one-line description ("Horizontal bar chart
@@ -477,9 +457,7 @@ class NutrientDwsProvider(Provider):
             return table
         return f"{head}{rest[: closing + 1]}<caption>{caption}</caption>{rest[closing + 1 :]}"
 
-    def _chart_tables_md(
-        self, els: list[dict], by_id: dict[str, dict], already_in: str = ""
-    ) -> str:
+    def _chart_tables_md(self, els: list[dict], by_id: dict[str, dict], already_in: str = "") -> str:
         """Chart tables missing from the hosted markdown, in reading order.
 
         The hosted markdown usually carries them already, so appending
@@ -545,13 +523,9 @@ class NutrientDwsProvider(Provider):
         return out
 
     # ---- Provider interface ------------------------------------------------
-    def run_inference(
-        self, pipeline: PipelineSpec, request: InferenceRequest
-    ) -> RawInferenceResult:
+    def run_inference(self, pipeline: PipelineSpec, request: InferenceRequest) -> RawInferenceResult:
         if request.product_type != ProductType.PARSE:
-            raise ProviderPermanentError(
-                f"NutrientDwsProvider only supports PARSE, got {request.product_type}"
-            )
+            raise ProviderPermanentError(f"NutrientDwsProvider only supports PARSE, got {request.product_type}")
         src = Path(request.source_file_path).resolve()
         if not src.exists():
             raise ProviderPermanentError(f"input file not found: {src}")
@@ -642,9 +616,7 @@ class NutrientDwsProvider(Provider):
                 # footers close it) IN ADDITION to the structured per-page fields,
                 # ground truth counts it on letterheads and sparse pages, which
                 # otherwise score 0 despite perfect extraction.
-                page_md = "\n\n".join(
-                    s for s in (self._graph_body_md(el, by_id) for el in els) if s
-                )
+                page_md = "\n\n".join(s for s in (self._graph_body_md(el, by_id) for el in els) if s)
             elif len(by_page) == 1:
                 page_md = "\n\n".join(s for s in (doc_markdown, chart_md) if s)
             else:
@@ -652,7 +624,7 @@ class NutrientDwsProvider(Provider):
                     s
                     for s in (
                         *(
-                            (self._render_table_html(el) if el.get("type") == "table" else (el.get("text") or "").strip())
+                            self._render_table_html(el) if el.get("type") == "table" else (el.get("text") or "").strip()
                             for el in els
                         ),
                         chart_md,
@@ -688,9 +660,7 @@ class NutrientDwsProvider(Provider):
             document_markdown = "\n\n".join(p.markdown for p in pages if p.markdown)
         else:
             all_chart_md = "\n\n".join(
-                s
-                for s in (self._chart_tables_md(by_page[p], by_id, doc_markdown) for p in sorted(by_page))
-                if s
+                s for s in (self._chart_tables_md(by_page[p], by_id, doc_markdown) for p in sorted(by_page)) if s
             )
             document_markdown = "\n\n".join(s for s in (doc_markdown, all_chart_md) if s)
         parse_output = ParseOutput(

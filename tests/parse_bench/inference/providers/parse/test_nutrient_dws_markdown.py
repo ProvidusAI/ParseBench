@@ -7,9 +7,7 @@ from parse_bench.inference.providers.parse.nutrient_dws import NutrientDwsProvid
 
 class TestInlineStyleMarkdown(unittest.TestCase):
     def setUp(self) -> None:
-        self.provider = NutrientDwsProvider(
-            "nutrient_dws", {"mode": "agentic", "api_key": "test"}
-        )
+        self.provider = NutrientDwsProvider("nutrient_dws", {"mode": "agentic", "api_key": "test"})
 
     def test_section_heading_preserves_underlined_word_run(self) -> None:
         element = {
@@ -33,9 +31,17 @@ class TestInlineStyleMarkdown(unittest.TestCase):
         element = {
             "type": "paragraph",
             "text": "to supply all relevant documents and",
-            "words": [_word(t, x, mark=True) for t, x in
-                      (("to", 0), ("supply", 25), ("all", 85),
-                       ("relevant", 120), ("documents", 205), ("and", 305))],
+            "words": [
+                _word(t, x, mark=True)
+                for t, x in (
+                    ("to", 0),
+                    ("supply", 25),
+                    ("all", 85),
+                    ("relevant", 120),
+                    ("documents", 205),
+                    ("and", 305),
+                )
+            ],
         }
 
         markdown = self.provider._graph_body_md(element, {})
