@@ -28,6 +28,7 @@ _PROVIDER_MODULES = [
     "google_docai",
     "granite_vision",
     "infinity_parser2",
+    "jinaocr",
     "kdl_frontier_nano",
     "landingai",
     "liteparse",
