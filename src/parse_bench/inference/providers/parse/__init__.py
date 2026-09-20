@@ -27,6 +27,7 @@ _PROVIDER_MODULES = [
     "google",
     "google_docai",
     "granite_vision",
+    "hunyuanocr",
     "hpd_parsing",
     "infinity_parser2",
     "jinaocr",

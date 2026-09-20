@@ -238,6 +238,7 @@ def swap_gemini_bbox(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
 LABEL_MAP: dict[str, str] = {
     "caption": "Caption",
     "code": "Code",
+    "document index": "Document Index",
     "footnote": "Footnote",
     "formula": "Formula",
     "list-item": "List-item",

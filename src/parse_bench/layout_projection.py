@@ -120,6 +120,15 @@ def project_to_canonical_predictions(
             canonical_predictions.append(_build_canonical(pred, canonical_class, attrs))
         return canonical_predictions
 
+    if model == LayoutDetectionModel.HUNYUANOCR_LAYOUT:
+        for pred in predictions:
+            try:
+                canonical_class = CanonicalLabel(pred.label)
+            except ValueError as exc:
+                raise UnknownRawLayoutLabelError(f"Unknown HunyuanOCR layout label '{pred.label}'") from exc
+            canonical_predictions.append(_build_canonical(pred, canonical_class, {}))
+        return canonical_predictions
+
     if model == LayoutDetectionModel.TELEOCR_LAYOUT:
         for pred in predictions:
             try:

@@ -315,6 +315,7 @@ class LayoutDetectionModel(StrEnum):
     OPENAI_LAYOUT = "openai_layout"
     ANTHROPIC_LAYOUT = "anthropic_layout"
     GEMMA4_LAYOUT = "gemma4_layout"
+    HUNYUANOCR_LAYOUT = "hunyuanocr_layout"
     DATABRICKS_LAYOUT = "databricks_layout"
     INFINITY_PARSER2_LAYOUT = "infinity_parser2_layout"
     OI_PARSER_LAYOUT = "oi_parser_layout"
@@ -453,6 +454,10 @@ LAYOUT_MODEL_INFO: dict[LayoutDetectionModel, dict[str, str]] = {
     LayoutDetectionModel.GEMMA4_LAYOUT: {
         "name": "Gemma 4 Layout (parse_with_layout)",
         "hf_url": "https://huggingface.co/google/gemma-4-E4B-it",
+    },
+    LayoutDetectionModel.HUNYUANOCR_LAYOUT: {
+        "name": "HunyuanOCR 1.5 Layout",
+        "hf_url": "https://huggingface.co/tencent/HunyuanOCR",
     },
     LayoutDetectionModel.DATABRICKS_LAYOUT: {
         "name": "Databricks ai_parse_document Layout",
