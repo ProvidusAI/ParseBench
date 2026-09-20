@@ -65,6 +65,7 @@ Chandra-ocr-2,VLM - Open Weight,70.1,89.2,65.1,83.7,61.4,51.2,,,,,,datalab-to/ch
 PaddleOCR-VL-1.6,VLM - Open Weight,67.43,67.77,54.24,82.71,54.64,77.8,,,,,,PaddlePaddle/PaddleOCR-VL-1.6
 PaddleOCR-VL-1.5,VLM - Open Weight,65.95,67.38,47.62,82.72,54.27,77.78,,,,,,PaddlePaddle/PaddleOCR-VL-1.5
 Surya OCR 2,VLM - Open Weight,64.83,82.68,21.95,86.57,61.36,71.59,,,,,,datalab-to/surya-ocr-2
+HunyuanOCR 1.5,VLM - Open Weight,63.86,65.45,55.98,86.44,47.73,63.72,,,,,,tencent/HunyuanOCR
 Gemma-4-31B-it,VLM - Open Weight,62.4,80.6,15,89.9,69.3,57.4,,,,,,google/gemma-4-31B-it
 Gemma-4-26B-A4B-it,VLM - Open Weight,58.5,70,14.2,83.8,65.1,59.2,,,,,,google/gemma-4-26B-A4B-it
 Nemotron-3-Nano-Omni-30B-A3B (Thinking),VLM - Open Weight,48.51,70.44,31.47,80.97,59.69,0,,,,,,nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16

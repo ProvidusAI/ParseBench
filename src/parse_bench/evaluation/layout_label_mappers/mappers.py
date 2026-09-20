@@ -60,6 +60,15 @@ class CanonicalPassthroughMapper(LayoutLabelMapper):
 
 
 @register_layout_label_mapper(
+    "hunyuanocr",
+    "model:hunyuanocr_layout",
+    priority=95,
+)
+class HunyuanOcrLabelMapper(CanonicalPassthroughMapper):
+    """Pass through the Canonical17 labels emitted by HunyuanOCR normalization."""
+
+
+@register_layout_label_mapper(
     "llamaparse",
     "model:llamaparse",
     priority=100,

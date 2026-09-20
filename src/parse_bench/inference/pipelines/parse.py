@@ -1219,6 +1219,21 @@ def register_parse_pipelines(register_fn) -> None:  # type: ignore[no-untyped-de
     )
 
     # =========================================================================
+    # HunyuanOCR-1.5 (tencent/HunyuanOCR, end-to-end OCR VLM)
+    # =========================================================================
+
+    register_fn(
+        PipelineSpec(
+            pipeline_name="hunyuanocr_1_5",
+            provider_name="hunyuanocr",
+            product_type=ProductType.PARSE,
+            config={
+                "server_url": "",  # Set via HUNYUANOCR_SERVER_URL or override
+            },
+        )
+    )
+
+    # =========================================================================
     # Unlimited-OCR (baidu/Unlimited-OCR, DeepSeek-OCR successor with grounding)
     # =========================================================================
 
