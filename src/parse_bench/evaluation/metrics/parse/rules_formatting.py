@@ -870,12 +870,11 @@ def _normalize_latex_formula(formula: str) -> str:
     body = re.sub(r"\\(?:leq|le)\b", r"\\le", body)
     body = re.sub(r"\\(?:geq|ge)\b", r"\\ge", body)
     body = re.sub(r"\\text\s*\{([^{}]*)\}", r"\1", body)
-    # Font selection is presentation exactly like ``\text``: the benchmark's models
-    # write ``E`` where an author wrote ``\mathbb{E}``, and both mean the same
-    # expression. Loop to a fixpoint so nested wrappers unwrap fully.
-    _font = re.compile(r"\\(?:mathbb|mathcal|mathbf|mathrm|mathit|mathsf|mathfrak|boldsymbol|bm|operatorname\*?)\s*\{([^{}]*)\}")
-    while _font.search(body):
-        body = _font.sub(r"\1", body)
+    # Font wrappers (\mathbb, \mathcal, \mathbf, ...) are deliberately NOT
+    # stripped: double-struck, script and bold letters are visually distinct
+    # glyphs on the page, so emitting them is transcription fidelity a model
+    # can and should learn -- unlike the pure syntax below, which no page
+    # rendering distinguishes.
     body = re.sub(r"\\(?:display|text|script|scriptscript)style\b", "", body)
     # Delimiter sizing is presentation, same policy as ``\left``/``\right`` above.
     body = re.sub(r"\\[Bb]igg?[lrm]?(?=\s|[()\[\]{}|\\.]|$)", "", body)

@@ -1759,20 +1759,19 @@ def test_mark_color_rule_with_nested_formatting() -> None:
     assert message == ""
 
 
-def test_is_latex_rule_ignores_font_selection_commands() -> None:
-    # \mathbb / \mathcal / \mathbf choose a typeface, not a different expression —
-    # the same policy the normalizer already applies to \text.
+def test_is_latex_rule_keeps_font_selection_commands_distinct() -> None:
+    # \mathbb{E} is a visually distinct glyph (double-struck) on the page, so a
+    # plain E is a real transcription difference — deliberately NOT normalized.
     rule = LatexRule(
         {
             "type": "is_latex",
-            "formula": r"\mathbb{E}[\mathbf{X}] = \mathcal{M}(N)",
+            "formula": r"\mathbb{E}[X]",
         }
     )
 
-    passed, message = rule.run(r"So $E[X] = M(N)$ holds.")
+    passed, _ = rule.run(r"So $E[X]$ holds.")
 
-    assert passed
-    assert message == ""
+    assert not passed
 
 
 def test_is_latex_rule_treats_single_char_subscript_braces_as_equal() -> None:
