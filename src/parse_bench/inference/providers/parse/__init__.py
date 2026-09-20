@@ -53,6 +53,7 @@ _PROVIDER_MODULES = [
     "qwen",
     "reducto",
     "surya2",
+    "teleocr",
     "tesseract",
     "textract",
     "unlimitedocr",
