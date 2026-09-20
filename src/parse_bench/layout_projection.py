@@ -129,6 +129,15 @@ def project_to_canonical_predictions(
             canonical_predictions.append(_build_canonical(pred, canonical_class, {}))
         return canonical_predictions
 
+    if model == LayoutDetectionModel.TELEOCR_LAYOUT:
+        for pred in predictions:
+            try:
+                canonical_class = CanonicalLabel(pred.label)
+            except ValueError as exc:
+                raise UnknownRawLayoutLabelError(f"Unknown TeleOCR layout label '{pred.label}'") from exc
+            canonical_predictions.append(_build_canonical(pred, canonical_class, {}))
+        return canonical_predictions
+
     for pred in predictions:
         if model == LayoutDetectionModel.YOLO_DOCLAYNET:
             canonical_predictions.append(_map_via_int_adapter(pred, yolo_adapter.to_canonical, model))

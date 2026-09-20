@@ -1234,6 +1234,21 @@ def register_parse_pipelines(register_fn) -> None:  # type: ignore[no-untyped-de
     )
 
     # =========================================================================
+    # OvisOCR2 (ATH-MaaS, 0.8B end-to-end page parsing VLM)
+    # =========================================================================
+
+    register_fn(
+        PipelineSpec(
+            pipeline_name="ovisocr2_vllm",
+            provider_name="ovisocr2",
+            product_type=ProductType.PARSE,
+            config={
+                "server_url": "",  # Set via OVISOCR2_SERVER_URL or override
+            },
+        )
+    )
+
+    # =========================================================================
     # Unlimited-OCR (baidu/Unlimited-OCR, DeepSeek-OCR successor with grounding)
     # =========================================================================
 
@@ -1537,6 +1552,25 @@ def register_parse_pipelines(register_fn) -> None:  # type: ignore[no-untyped-de
                 "model": "gemma-4-e4b",
                 "prompt_mode": "layout",
                 "swap_bbox": True,
+            },
+        )
+    )
+
+    # =========================================================================
+    # HPD-Parsing (PaddlePaddle/HPD-Parsing, 1B InternVL3.5 backbone)
+    # =========================================================================
+
+    register_fn(
+        PipelineSpec(
+            pipeline_name="hpd_parsing_vllm_parse",
+            provider_name="hpd_parsing",
+            product_type=ProductType.PARSE,
+            config={
+                "server_url_env": "HPD_PARSING_SERVER_URL",
+                "model": "PaddlePaddle/HPD-Parsing",
+                "prompt_mode": "fork",
+                "dpi": 200,
+                "timeout": 900,
             },
         )
     )
@@ -2546,6 +2580,18 @@ def register_parse_pipelines(register_fn) -> None:  # type: ignore[no-untyped-de
         )
     )
 
+    # TeleOCR (StarDoc-AI/TeleOCR, two-stage layout detection and recognition)
+    register_fn(
+        PipelineSpec(
+            pipeline_name="teleocr_vllm",
+            provider_name="teleocr",
+            product_type=ProductType.PARSE,
+            config={
+                "server_url": "",  # Set via TELEOCR_SERVER_URL or override
+            },
+        )
+    )
+
     # =========================================================================
     # Surya OCR 2 (datalab-to/surya-ocr-2, 650M VLM)
     # =========================================================================
@@ -2726,3 +2772,33 @@ def register_parse_pipelines(register_fn) -> None:  # type: ignore[no-untyped-de
                 per_file_timeout=900.0,
             )
         )
+
+    # =========================================================================
+    # WeVisDoc 2B and 4B
+    # =========================================================================
+
+    register_fn(
+        PipelineSpec(
+            pipeline_name="wevisdoc_2b_vllm",
+            provider_name="wevisdoc",
+            product_type=ProductType.PARSE,
+            config={
+                "server_url": "",
+                "server_url_env": "WEVISDOC_2B_SERVER_URL",
+                "served_model_name": "wevisdoc-2b",
+            },
+        )
+    )
+
+    register_fn(
+        PipelineSpec(
+            pipeline_name="wevisdoc_4b_vllm",
+            provider_name="wevisdoc",
+            product_type=ProductType.PARSE,
+            config={
+                "server_url": "",
+                "server_url_env": "WEVISDOC_4B_SERVER_URL",
+                "served_model_name": "wevisdoc-4b",
+            },
+        )
+    )
