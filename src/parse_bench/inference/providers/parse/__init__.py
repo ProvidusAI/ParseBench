@@ -46,6 +46,7 @@ _PROVIDER_MODULES = [
     "mistral_ocr",
     "nemotron_omni",
     "openai",
+    "ovisocr2",
     "paddleocr",
     "pulse",
     "pymupdf",
@@ -53,11 +54,13 @@ _PROVIDER_MODULES = [
     "qwen",
     "reducto",
     "surya2",
+    "teleocr",
     "tesseract",
     "textract",
     "unlimitedocr",
     "unstructured",
     "warp_ingest",
+    "wevisdoc",
     "oi_parser",
 ]
 

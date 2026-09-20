@@ -324,6 +324,7 @@ class LayoutDetectionModel(StrEnum):
     PYMUPDF4LLM_LAYOUT = "pymupdf4llm_layout"
     LITEPARSE_LAYOUT = "liteparse_layout"
     HPD_PARSING_LAYOUT = "hpd_parsing_layout"
+    TELEOCR_LAYOUT = "teleocr_layout"
     FIRECRAWL_LAYOUT = "firecrawl_layout"
     ANYFORMAT_LAYOUT = "anyformat_layout"
 
@@ -472,6 +473,10 @@ LAYOUT_MODEL_INFO: dict[LayoutDetectionModel, dict[str, str]] = {
     LayoutDetectionModel.HPD_PARSING_LAYOUT: {
         "name": "HPD-Parsing Layout",
         "hf_url": "https://huggingface.co/PaddlePaddle/HPD-Parsing",
+    },
+    LayoutDetectionModel.TELEOCR_LAYOUT: {
+        "name": "TeleOCR Layout",
+        "hf_url": "https://huggingface.co/StarDoc-AI/TeleOCR",
     },
     LayoutDetectionModel.FIRECRAWL_LAYOUT: {
         "name": "Firecrawl Layout",
