@@ -1757,3 +1757,64 @@ def test_mark_color_rule_with_nested_formatting() -> None:
     passed, message = rule.run('<mark style="background-color: green">**hello** world</mark>')
     assert passed
     assert message == ""
+
+
+def test_is_latex_rule_ignores_font_selection_commands() -> None:
+    # \mathbb / \mathcal / \mathbf choose a typeface, not a different expression —
+    # the same policy the normalizer already applies to \text.
+    rule = LatexRule(
+        {
+            "type": "is_latex",
+            "formula": r"\mathbb{E}[\mathbf{X}] = \mathcal{M}(N)",
+        }
+    )
+
+    passed, message = rule.run(r"So $E[X] = M(N)$ holds.")
+
+    assert passed
+    assert message == ""
+
+
+def test_is_latex_rule_treats_single_char_subscript_braces_as_equal() -> None:
+    # x_{2} and x_2 are the same subscript; brace style must not fail a match.
+    rule = LatexRule(
+        {
+            "type": "is_latex",
+            "formula": r"\alpha_{o} + \alpha_{1} \cdot \ln(M)",
+        }
+    )
+
+    passed, message = rule.run(r"$\alpha_o + \alpha_1 \cdot \ln(M)$")
+
+    assert passed
+    assert message == ""
+
+
+def test_is_latex_rule_keeps_multi_char_subscript_groups_distinct() -> None:
+    # x_{12} is a two-character subscript; x_1 2 is not the same expression.
+    rule = LatexRule(
+        {
+            "type": "is_latex",
+            "formula": r"x_{12}",
+        }
+    )
+
+    passed, _ = rule.run(r"$x_1 2$")
+
+    assert not passed
+
+
+def test_is_latex_rule_ignores_delimiter_sizing_and_equation_number() -> None:
+    # \Big sizing and a trailing (1) equation number are presentation, the same
+    # policy already applied to \left / \right and \tag / \eqno.
+    rule = LatexRule(
+        {
+            "type": "is_latex",
+            "formula": r"\Big( a + b \Big) \quad (1)",
+        }
+    )
+
+    passed, message = rule.run(r"$( a + b )$")
+
+    assert passed
+    assert message == ""

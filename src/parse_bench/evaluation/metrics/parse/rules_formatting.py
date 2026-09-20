@@ -870,7 +870,15 @@ def _normalize_latex_formula(formula: str) -> str:
     body = re.sub(r"\\(?:leq|le)\b", r"\\le", body)
     body = re.sub(r"\\(?:geq|ge)\b", r"\\ge", body)
     body = re.sub(r"\\text\s*\{([^{}]*)\}", r"\1", body)
+    # Font selection is presentation exactly like ``\text``: the benchmark's models
+    # write ``E`` where an author wrote ``\mathbb{E}``, and both mean the same
+    # expression. Loop to a fixpoint so nested wrappers unwrap fully.
+    _font = re.compile(r"\\(?:mathbb|mathcal|mathbf|mathrm|mathit|mathsf|mathfrak|boldsymbol|bm|operatorname\*?)\s*\{([^{}]*)\}")
+    while _font.search(body):
+        body = _font.sub(r"\1", body)
     body = re.sub(r"\\(?:display|text|script|scriptscript)style\b", "", body)
+    # Delimiter sizing is presentation, same policy as ``\left``/``\right`` above.
+    body = re.sub(r"\\[Bb]igg?[lrm]?(?=\s|[()\[\]{}|\\.]|$)", "", body)
     body = re.sub(r"\\(?:quad|qquad|,|;|:|!|>|enspace|hspace\*?\{[^{}]*\})", "", body)
     body = re.sub(r"\\[ \t]+", "", body)
     body = re.sub(r"\\tag\s*\{[^{}]*\}", "", body)
@@ -884,6 +892,13 @@ def _normalize_latex_formula(formula: str) -> str:
     ):
         body = body.replace(unicode_operator, latex_operator)
     body = re.sub(r"\s+", "", body)
+    # ``x_{2}`` and ``x_2`` are the same subscript; canonicalize single-character
+    # sub/superscript groups so brace style cannot fail a match. Multi-character
+    # groups are left alone -- ``x_{12}`` and ``x_1 2`` genuinely differ.
+    body = re.sub(r"([_^])\{([A-Za-z0-9*'+\-])\}", r"\1\2", body)
+    # A trailing ``(1)`` is an equation number, the same presentation detail the
+    # ``\tag``/``\eqno`` strips above already ignore.
+    body = re.sub(r"\((\d{1,3})\)$", "", body)
     return body
 
 
