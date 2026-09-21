@@ -36,6 +36,8 @@ from parse_bench.evaluation.metrics.layoutdet.iou import (
     compute_iou_matrix,
     compute_rotated_ioa_matrix,
     compute_rotated_iou_matrix,
+    convex_polygon_intersection,
+    xyxy_to_rotated_polygon,
 )
 from parse_bench.evaluation.stats import build_operational_stats
 from parse_bench.layout_label_mapping import (
@@ -142,6 +144,10 @@ def _build_page_furniture_group(
     iou_row: np.ndarray | None = None,
     pred_order_indices: list[int] | None = None,
     pred_classes: list[str | None] | None = None,
+    gt_angle: float | None = None,
+    pred_angles: list[float | None] | None = None,
+    page_width: float = 1.0,
+    page_height: float = 1.0,
 ) -> _PageFurnitureGroup:
     """Group predictions that recover a page-header/footer GT band."""
     if ioa_pred_to_gt is None or not pred_boxes:
@@ -151,10 +157,31 @@ def _build_page_furniture_group(
         int(pred_idx) for pred_idx in np.where(ioa_pred_to_gt[:, gt_idx] >= LOCALIZATION_IOA_PRED_THRESHOLD)[0]
     ]
 
+    rotated = any((angle or 0) % 360 for angle in [gt_angle] + (pred_angles or []))
+    if rotated:
+        dimensions = {"page_width": page_width, "page_height": page_height}
+        gt_polygon = xyxy_to_rotated_polygon(gt_box, gt_angle or 0, **dimensions)
+        physical_gt = np.array(gt_polygon) * [page_width, page_height]
+        axes = physical_gt[[1, 3]] - physical_gt[0]
+        squared_lengths = np.sum(axes * axes, axis=1)
+        if np.any(squared_lengths == 0):
+            return _PageFurnitureGroup([], [], None, None)
+
     retained_indices: list[int] = []
     clipped_boxes: list[list[float]] = []
     for pred_idx in candidate_indices:
-        clipped = _clip_box_to_box(pred_boxes[pred_idx], gt_box)
+        if rotated:
+            polygon = xyxy_to_rotated_polygon(
+                pred_boxes[pred_idx], (pred_angles[pred_idx] or 0) if pred_angles else 0, **dimensions
+            )
+            intersection = convex_polygon_intersection(polygon, gt_polygon)
+            if not intersection:
+                continue
+            # Measure polygon projections in the GT band's own physical frame.
+            points = (np.array(intersection) * [page_width, page_height] - physical_gt[0]) @ axes.T / squared_lengths
+            clipped = [*points.min(axis=0), *points.max(axis=0)]
+        else:
+            clipped = _clip_box_to_box(pred_boxes[pred_idx], gt_box)
         if clipped is None:
             continue
         retained_indices.append(pred_idx)
@@ -178,7 +205,9 @@ def _build_page_furniture_group(
             Counter(str(pred_classes[pred_idx]) for pred_idx in retained_indices if pred_classes[pred_idx] is not None)
         )
 
-    x_span_coverage, x_fill_coverage, y_coverage = _compute_page_furniture_band_coverage(gt_box, clipped_boxes)
+    x_span_coverage, x_fill_coverage, y_coverage = _compute_page_furniture_band_coverage(
+        [0, 0, 1, 1] if rotated else gt_box, clipped_boxes
+    )
     return _PageFurnitureGroup(
         pred_indices=retained_indices,
         clipped_boxes=clipped_boxes,
@@ -456,6 +485,10 @@ def _select_page_furniture_attribution_match(
         ioa_pred_to_gt=ioa_attr_pred,
         iou_row=iou_attr[gt_idx] if iou_attr is not None else None,
         pred_order_indices=[pred.order_index for pred in pred_blocks],
+        gt_angle=gt_elements[gt_idx].r,
+        pred_angles=[pred.r for pred in pred_blocks],
+        page_width=pred_blocks[0].page_width if pred_blocks else 1.0,
+        page_height=pred_blocks[0].page_height if pred_blocks else 1.0,
     )
 
     if not group.pred_indices:
@@ -1098,6 +1131,10 @@ class LayoutDetectionEvaluator(BaseEvaluator):
                             iou_row=iou_matrix[gt_idx],
                             pred_order_indices=page_prediction_order_indices,
                             pred_classes=page_prediction_classes,
+                            gt_angle=rule.r,
+                            pred_angles=[pred.get("r") for pred in page_predictions],
+                            page_width=page_predictions[0]["page_width"],
+                            page_height=page_predictions[0]["page_height"],
                         )
                         if furniture_group.representative_pred_idx is not None:
                             best_pred_idx = furniture_group.representative_pred_idx

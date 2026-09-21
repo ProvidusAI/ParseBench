@@ -15,6 +15,9 @@ from parse_bench.schemas.pipeline_io import InferenceRequest, InferenceResult
     "name",
     [
         "AnthropicLayoutAdapter",
+        "HunyuanOcrLayoutAdapter",
+        "AnyformatLayoutAdapter",
+        "TeleOCRLayoutAdapter",
         "AzureDILayoutAdapter",
         "Chandra2LayoutAdapter",
         "DatabricksAiParseLayoutAdapter",

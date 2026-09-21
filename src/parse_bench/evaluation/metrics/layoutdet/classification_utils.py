@@ -12,7 +12,6 @@ import numpy as np
 
 from parse_bench.evaluation.metrics.layoutdet.iou import (
     compute_iou_matrix,
-    compute_rotated_iou,
     compute_rotated_iou_matrix,
 )
 
@@ -74,63 +73,20 @@ def rotated_overlap_fn(
 ) -> Callable[[dict[str, Any], dict[str, Any]], float]:
     """Build cached rotated IoU matching with each page's physical aspect ratio."""
 
-    def entry_key(entry: dict[str, Any]) -> tuple[tuple[float, float, float, float], float | None, str]:
+    def entry_key(entry: dict[str, Any]) -> tuple:
         angle = entry.get("r")
         return (
             _bbox_cache_key(entry["bbox"]),
             None if angle is None else float(angle),
-            str(entry.get("page", "__missing__")),
+            _entry_page_dimensions(entry, page_dimensions_by_number),
         )
 
     class RotatedOverlap:
         def __init__(self) -> None:
-            self._scalar_cache: dict[
-                tuple[
-                    tuple[float, float, float, float],
-                    float | None,
-                    tuple[float, float, float, float],
-                    float | None,
-                    float,
-                    float,
-                ],
-                float,
-            ] = {}
-            self._matrix_cache: dict[
-                tuple[
-                    tuple[tuple[tuple[float, float, float, float], float | None, str], ...],
-                    tuple[tuple[tuple[float, float, float, float], float | None, str], ...],
-                ],
-                np.ndarray,
-            ] = {}
+            self._matrix_cache: dict[tuple, np.ndarray] = {}
 
         def __call__(self, pred: dict[str, Any], gt: dict[str, Any]) -> float:
-            page_width, page_height = _matching_page_dimensions(gt, pred, page_dimensions_by_number)
-            gt_angle = gt.get("r")
-            pred_angle = pred.get("r")
-            key = (
-                _bbox_cache_key(gt["bbox"]),
-                None if gt_angle is None else float(gt_angle),
-                _bbox_cache_key(pred["bbox"]),
-                None if pred_angle is None else float(pred_angle),
-                float(page_width),
-                float(page_height),
-            )
-            cached = self._scalar_cache.get(key)
-            if cached is not None:
-                return cached
-
-            value = compute_rotated_iou(
-                gt["bbox"],
-                gt_angle,
-                pred["bbox"],
-                pred_angle,
-                gt_angle_present=gt_angle is not None,
-                page_width=page_width,
-                page_height=page_height,
-                force_rotated=True,
-            )
-            self._scalar_cache[key] = value
-            return value
+            return float(self.matrix([pred], [gt])[0, 0])
 
         def matrix(self, predictions: list[dict[str, Any]], ground_truth: list[dict[str, Any]]) -> np.ndarray:
             cache_key = (

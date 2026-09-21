@@ -446,3 +446,87 @@ def test_detection_cannot_match_a_box_on_another_page(angle):
     assert sum(cell.count for cell in confusion.cells) == 0
     assert len(confusion.false_negatives["Text"]) == 2
     assert len(confusion.false_positives["Text"]) == 2
+
+
+@pytest.mark.parametrize("page", [None, 1])
+def test_native_single_page_detection_without_page_identity(page):
+    from parse_bench.evaluation.evaluators.layoutdet import LayoutDetectionEvaluator
+    from parse_bench.schemas.layout_detection_output import LayoutDetectionModel, LayoutPrediction
+    from parse_bench.test_cases.schema import LayoutDetectionTestCase
+
+    output = LayoutOutput(
+        example_id="probe",
+        pipeline_name="native",
+        model=LayoutDetectionModel.YOLO_DOCLAYNET,
+        image_width=100,
+        image_height=100,
+        predictions=[LayoutPrediction(bbox=[10, 10, 50, 50], label=9, score=1, page=page)],
+    )
+    inference = _result(output=output).model_copy(
+        update={"product_type": ProductType.LAYOUT_DETECTION, "pipeline_name": "native"}
+    )
+    case = LayoutDetectionTestCase(
+        test_id="probe",
+        group="test",
+        file_path="/tmp/probe.png",
+        test_rules=[{"type": "layout", "page": 1, "bbox": [0.1, 0.1, 0.4, 0.4], "canonical_class": "Text"}],
+    )
+    evaluator = LayoutDetectionEvaluator()
+    metrics = {m.metric_name: m.value for m in evaluator.evaluate(inference, case).metrics}
+    assert metrics["AP50"] == metrics["mean_f1"] == metrics["layout_localization_pass_rate"] == 1
+    confusion = evaluator.compute_confusion_matrix({"probe": inference}, {"probe": case})
+    assert sum(c.count for c in confusion.cells) == 1
+    assert not confusion.false_negatives and not confusion.false_positives
+
+
+@pytest.mark.parametrize("gt_angle", [0, 30, -30, 90])
+@pytest.mark.parametrize("label", ["Page-header", "Page-footer"])
+@pytest.mark.parametrize("correct", [True, False])
+def test_furniture_coverage_uses_rendered_geometry(gt_angle, label, correct):
+    from parse_bench.evaluation.evaluators.layoutdet import LayoutDetectionEvaluator
+    from parse_bench.schemas.layout_detection_output import LayoutDetectionModel, LayoutPrediction, LayoutTextContent
+    from parse_bench.test_cases.schema import LayoutDetectionTestCase
+
+    output = LayoutOutput(
+        example_id="probe",
+        pipeline_name="native",
+        model=LayoutDetectionModel.LAYOUT_V3,
+        image_width=200,
+        image_height=100,
+        predictions=[
+            LayoutPrediction(
+                bbox=[97.5, -12.5, 102.5, 107.5],
+                r=gt_angle + (90 if correct else 0),
+                page=1,
+                label=5 if label == "Page-header" else 4,
+                score=1,
+                content=LayoutTextContent(text="alpha"),
+            )
+        ],
+    )
+    inference = _result(output=output).model_copy(
+        update={"product_type": ProductType.LAYOUT_DETECTION, "pipeline_name": "native"}
+    )
+    case = LayoutDetectionTestCase(
+        test_id="probe",
+        group="test",
+        file_path="/tmp/probe.png",
+        test_rules=[
+            {
+                "type": "layout",
+                "page": 1,
+                "bbox": [0.2, 0.45, 0.6, 0.05],
+                "r": gt_angle,
+                "canonical_class": label,
+                "content": {"type": "text", "text": "alpha"},
+            }
+        ],
+    )
+    metrics = {m.metric_name: m for m in LayoutDetectionEvaluator().evaluate(inference, case).metrics}
+    for name in (
+        "AP50",
+        "layout_localization_pass_rate",
+        "layout_classification_pass_rate",
+        "layout_attribution_pass_rate",
+    ):
+        assert metrics[name].value == int(correct), name

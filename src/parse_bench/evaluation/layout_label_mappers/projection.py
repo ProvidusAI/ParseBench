@@ -118,8 +118,9 @@ def project_layout_predictions(
 
     pages_by_number = {page.page_number: page for page in layout_output.layout_pages}
     for prediction in layout_output.predictions:
-        page = pages_by_number.get(prediction.page)
-        if page_filter is not None and prediction.page != page_filter:
+        page_number = prediction.page if prediction.page is not None else 1
+        page = pages_by_number.get(page_number)
+        if page_filter is not None and page_number != page_filter:
             continue
         if not mapper.should_include_prediction(prediction, context):
             continue
@@ -157,7 +158,7 @@ def project_layout_predictions(
                 else layout_output.image_height,
                 "class_name": class_name,
                 "score": score,
-                "page": prediction.page,
+                "page": page_number,
                 "order_index": order_index,
                 "attributes": attributes,
             }

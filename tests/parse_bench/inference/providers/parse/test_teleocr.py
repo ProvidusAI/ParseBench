@@ -224,7 +224,7 @@ def test_teleocr_block_only_response_reaches_layout_adapter() -> None:
     assert isinstance(adapter, TeleOCRLayoutAdapter)
     layout = adapter.to_layout_output(result)
     assert [prediction.label for prediction in layout.predictions] == ["Picture"]
-    assert layout.predictions[0].bbox == [100.0, 200.0, 900.0, 800.0]
+    assert layout.predictions[0].bbox == [100.0, 400.0, 900.0, 1600.0]
 
 
 def test_teleocr_preserves_server_markdown_and_normalizes_block_layout() -> None:
@@ -284,10 +284,10 @@ def test_teleocr_preserves_server_markdown_and_normalizes_block_layout() -> None
     layout = adapter.to_layout_output(result)
     assert layout.model is LayoutDetectionModel.TELEOCR_LAYOUT
     assert [prediction.label for prediction in layout.predictions] == ["Title", "Table", "Page-footer"]
-    assert layout.predictions[0].bbox == [100.0, 100.0, 900.0, 200.0]
+    assert layout.predictions[0].bbox == [100.0, 200.0, 900.0, 400.0]
 
 
-def test_teleocr_mixed_page_sizes_use_common_frame_and_project_code_labels() -> None:
+def test_teleocr_mixed_page_sizes_retain_page_frames_and_project_code_labels() -> None:
     pipeline = get_pipeline("teleocr_vllm")
     provider = _provider()
     page_one_markdown = "```python\nprint('page one')\n```"
@@ -333,10 +333,10 @@ def test_teleocr_mixed_page_sizes_use_common_frame_and_project_code_labels() -> 
     adapter = create_layout_adapter_for_result(result)
     assert isinstance(adapter, TeleOCRLayoutAdapter)
     layout = adapter.to_layout_output(result)
-    assert (layout.image_width, layout.image_height) == (1000, 1000)
+    assert (layout.image_width, layout.image_height) == (1000, 2000)
     assert [prediction.bbox for prediction in layout.predictions] == [
-        [100.0, 200.0, 400.0, 500.0],
-        [250.0, 100.0, 750.0, 900.0],
+        [100.0, 400.0, 400.0, 1000.0],
+        [500.0, 100.0, 1500.0, 900.0],
     ]
     assert [prediction.label for prediction in layout.predictions] == ["Code", "Code"]
 

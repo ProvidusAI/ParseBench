@@ -100,7 +100,7 @@ class NormalizedLayoutOutputAdapter(LayoutAdapter):
             return inference_result.output
 
         predictions = [
-            prediction for prediction in inference_result.output.predictions if prediction.page == page_filter
+            prediction for prediction in inference_result.output.predictions if (prediction.page or 1) == page_filter
         ]
         return inference_result.output.model_copy(update={"predictions": predictions})
 
@@ -1360,14 +1360,7 @@ class Gemma4LayoutAdapter(LayoutAdapter):
 
 @register_layout_adapter("hunyuanocr", priority=90)
 class HunyuanOcrLayoutAdapter(LayoutAdapter):
-    """Project HunyuanOCR's normalized boxes and canonical labels.
-
-    ``LayoutOutput`` has one global coordinate frame. HunyuanOCR already emits
-    every page on a normalized 0-1000 grid, so all pages are projected into the
-    same 1000x1000 frame instead of mixing their source pixel dimensions.
-    """
-
-    _SCALE = 1000
+    """Project normalized segments into each page's physical coordinate frame."""
 
     @classmethod
     def matches(cls, inference_result: InferenceResult) -> bool:
@@ -1401,10 +1394,15 @@ class HunyuanOcrLayoutAdapter(LayoutAdapter):
         if not inference_result.output.layout_pages:
             raise ValueError("HunyuanOcrLayoutAdapter requires non-empty layout_pages")
 
+        layout_pages = inference_result.output.layout_pages
+        output_width = layout_pages[0].width or 1
+        output_height = layout_pages[0].height or 1
         predictions: list[LayoutPrediction] = []
         for page in inference_result.output.layout_pages:
             if page_filter is not None and page.page_number != page_filter:
                 continue
+            page_width = page.width or output_width
+            page_height = page.height or output_height
             for item in page.items:
                 segments = item.layout_segments or ([item.bbox] if item.bbox is not None else [])
                 for segment in segments:
@@ -1414,12 +1412,13 @@ class HunyuanOcrLayoutAdapter(LayoutAdapter):
                     predictions.append(
                         LayoutPrediction(
                             bbox=[
-                                segment.x * self._SCALE,
-                                segment.y * self._SCALE,
-                                (segment.x + segment.w) * self._SCALE,
-                                (segment.y + segment.h) * self._SCALE,
+                                segment.x * page_width,
+                                segment.y * page_height,
+                                (segment.x + segment.w) * page_width,
+                                (segment.y + segment.h) * page_height,
                             ],
-                            score=float(segment.confidence or 1.0),
+                            r=segment.r,
+                            score=segment.confidence if segment.confidence is not None else 1.0,
                             label=label,
                             page=page.page_number,
                             content=_build_dots_ocr_content(label, item.value),
@@ -1432,9 +1431,10 @@ class HunyuanOcrLayoutAdapter(LayoutAdapter):
             example_id=inference_result.request.example_id,
             pipeline_name=inference_result.pipeline_name,
             model=LayoutDetectionModel.HUNYUANOCR_LAYOUT,
-            image_width=self._SCALE,
-            image_height=self._SCALE,
+            image_width=int(output_width),
+            image_height=int(output_height),
             predictions=predictions,
+            layout_pages=[page.model_copy(update={"items": []}) for page in layout_pages],
             markdown=inference_result.output.markdown,
         )
 
@@ -1888,6 +1888,7 @@ class AnyformatLayoutAdapter(LayoutAdapter):
                     predictions.append(
                         LayoutPrediction(
                             bbox=[seg.x * page_w, seg.y * page_h, (seg.x + seg.w) * page_w, (seg.y + seg.h) * page_h],
+                            r=seg.r,
                             score=float(seg.confidence) if seg.confidence is not None else 1.0,
                             label=label,
                             page=lp.page_number,
@@ -1904,6 +1905,7 @@ class AnyformatLayoutAdapter(LayoutAdapter):
             image_width=max(output_width, 1),
             image_height=max(output_height, 1),
             predictions=predictions,
+            layout_pages=[page.model_copy(update={"items": []}) for page in layout_pages],
         )
 
 
@@ -3668,16 +3670,7 @@ class HpdParsingLayoutAdapter(LiteParseLayoutAdapter):
 
 @register_layout_adapter("teleocr", priority=90)
 class TeleOCRLayoutAdapter(LayoutAdapter):
-    """Project TeleOCR's normalized page boxes into one common frame.
-
-    ``LayoutOutput`` carries one global width and height, so predictions from
-    differently sized PDF pages cannot use their original pixel dimensions.
-    TeleOCR already stores every segment in normalized [0, 1] coordinates;
-    scaling all pages to the same square preserves those coordinates through
-    evaluator normalization, with or without a page filter.
-    """
-
-    _SCALE = 1000
+    """Project normalized segments into each page's physical coordinate frame."""
 
     def to_layout_output(
         self,
@@ -3697,10 +3690,15 @@ class TeleOCRLayoutAdapter(LayoutAdapter):
         if not inference_result.output.layout_pages:
             raise ValueError("TeleOCRLayoutAdapter requires non-empty layout_pages")
 
+        layout_pages = inference_result.output.layout_pages
+        output_width = layout_pages[0].width or 1
+        output_height = layout_pages[0].height or 1
         predictions: list[LayoutPrediction] = []
         for page in inference_result.output.layout_pages:
             if page_filter is not None and page.page_number != page_filter:
                 continue
+            page_width = page.width or output_width
+            page_height = page.height or output_height
             for item in page.items:
                 segments = item.layout_segments or ([item.bbox] if item.bbox is not None else [])
                 for segment in segments:
@@ -3713,11 +3711,12 @@ class TeleOCRLayoutAdapter(LayoutAdapter):
                     predictions.append(
                         LayoutPrediction(
                             bbox=[
-                                segment.x * self._SCALE,
-                                segment.y * self._SCALE,
-                                (segment.x + segment.w) * self._SCALE,
-                                (segment.y + segment.h) * self._SCALE,
+                                segment.x * page_width,
+                                segment.y * page_height,
+                                (segment.x + segment.w) * page_width,
+                                (segment.y + segment.h) * page_height,
                             ],
+                            r=segment.r,
                             score=segment.confidence if segment.confidence is not None else 1.0,
                             label=label,
                             page=page.page_number,
@@ -3731,8 +3730,9 @@ class TeleOCRLayoutAdapter(LayoutAdapter):
             example_id=inference_result.request.example_id,
             pipeline_name=inference_result.pipeline_name,
             model=LayoutDetectionModel.TELEOCR_LAYOUT,
-            image_width=self._SCALE,
-            image_height=self._SCALE,
+            image_width=int(output_width),
+            image_height=int(output_height),
             predictions=predictions,
+            layout_pages=[page.model_copy(update={"items": []}) for page in layout_pages],
             markdown=inference_result.output.markdown,
         )
