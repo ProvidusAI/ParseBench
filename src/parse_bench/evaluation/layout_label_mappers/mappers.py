@@ -60,6 +60,15 @@ class CanonicalPassthroughMapper(LayoutLabelMapper):
 
 
 @register_layout_label_mapper(
+    "hunyuanocr",
+    "model:hunyuanocr_layout",
+    priority=95,
+)
+class HunyuanOcrLabelMapper(CanonicalPassthroughMapper):
+    """Pass through the Canonical17 labels emitted by HunyuanOCR normalization."""
+
+
+@register_layout_label_mapper(
     "llamaparse",
     "model:llamaparse",
     priority=100,
@@ -345,11 +354,13 @@ class DotsOcrLabelMapper(LayoutLabelMapper):
 
 @register_layout_label_mapper(
     "liteparse",
+    "hpd_parsing",
     "model:liteparse_layout",
+    "model:hpd_parsing_layout",
     priority=90,
 )
 class LiteParseLabelMapper(LayoutLabelMapper):
-    """LiteParse blocks are emitted with canonical labels already; validate them."""
+    """Validate providers whose layout blocks already use canonical labels."""
 
     _BY_LOWER: dict[str, CanonicalLabel] = {label.value.lower(): label for label in CanonicalLabel}
 
@@ -362,5 +373,5 @@ class LiteParseLabelMapper(LayoutLabelMapper):
         del prediction, context
         canonical = self._BY_LOWER.get(label.strip().lower())
         if canonical is None:
-            raise UnknownRawLayoutLabelError(f"Unknown LiteParse layout label '{label}'")
+            raise UnknownRawLayoutLabelError(f"Unknown canonical layout label '{label}'")
         return canonical
