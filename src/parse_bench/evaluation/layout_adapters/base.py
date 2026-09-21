@@ -116,5 +116,8 @@ def filter_layout_output(output: LayoutOutput, page_number: int | None) -> Layou
     if page_number is None:
         return output
     return output.model_copy(
-        update={"predictions": [p for p in output.predictions if (p.page if p.page is not None else 1) == page_number]}
+        update={
+            "predictions": [p for p in output.predictions if (p.page if p.page is not None else 1) == page_number],
+            "layout_pages": [page for page in output.layout_pages if page.page_number == page_number],
+        }
     )

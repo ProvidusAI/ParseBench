@@ -556,3 +556,40 @@ def test_furniture_coverage_uses_rendered_geometry(gt_angle, label, correct):
         "layout_attribution_pass_rate",
     ):
         assert metrics[name].value == int(correct), name
+
+
+@pytest.mark.parametrize("page_number", [1, 2])
+def test_page_filter_limits_page_centric_projection(page_number):
+    from parse_bench.evaluation.layout_adapters.base import filter_layout_output
+    from parse_bench.evaluation.layout_label_mappers.projection import project_layout_predictions
+
+    output = extract_all_layouts_from_llamaparse_output(
+        {
+            "pages": [
+                {
+                    "page": number,
+                    "width": width,
+                    "height": height,
+                    "items": [
+                        {
+                            "type": "text",
+                            "value": "alpha",
+                            "bBox": {"x": 20, "y": 30, "w": 50, "h": 10, "r": 30},
+                            "layoutAwareBbox": [{"x": 20, "y": 30, "w": 50, "h": 10, "r": 30, "label": "text"}],
+                        }
+                    ],
+                }
+                for number, width, height in [(1, 200, 100), (2, 100, 200)]
+            ]
+        }
+    )
+    filtered = filter_layout_output(output, page_number)
+    projected = project_layout_predictions(
+        _result(output=filtered), filtered, evaluation_view="canonical", target_ontology="canonical"
+    )
+    assert [prediction["page"] for prediction in projected] == [page_number]
+    expected_width, expected_height = (200, 100) if page_number == 1 else (100, 200)
+    assert projected[0]["page_width"] == expected_width
+    assert projected[0]["page_height"] == expected_height
+    assert projected[0]["r"] == 30
+    assert len(output.layout_pages) == 2
