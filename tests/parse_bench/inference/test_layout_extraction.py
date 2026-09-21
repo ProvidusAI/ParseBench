@@ -282,3 +282,23 @@ def test_llamaparse_layout_extraction_html_less_table_uses_per_segment_text_slic
     assert output.predictions[1].content is not None
     assert output.predictions[0].content.text == "row one"
     assert output.predictions[1].content.text == "row two"
+
+
+@pytest.mark.parametrize("extract", [extract_layout_from_llamaparse_output, extract_all_layouts_from_llamaparse_output])
+def test_llamaparse_layout_extraction_defaults_missing_and_null_confidence(extract) -> None:
+    raw_output = _make_raw_output(["text", "text"])
+    segments = raw_output["pages"][0]["items"][0]["layoutAwareBbox"]
+    template = segments[0]
+    segments[:] = [
+        {key: value for key, value in template.items() if key != "confidence"},
+        {**template, "confidence": None},
+        {**template, "confidence": 0.0},
+        {**template, "confidence": 0.9},
+    ]
+
+    output = extract(raw_output)
+
+    assert output is not None
+    assert [prediction.score for prediction in output.predictions] == [0.0, 0.0, 0.0, 0.9]
+    assert [prediction.bbox for prediction in output.predictions] == [[100.0, 100.0, 300.0, 220.0]] * 4
+    assert [item.score for item in output.layout_pages[0].items] == [0.0, 0.0, 0.0, 0.9]

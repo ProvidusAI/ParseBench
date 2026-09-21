@@ -261,7 +261,7 @@ def _extract_page_predictions(
             attributes = _prediction_attributes(item_type=item_type, raw_label=label)
             prediction = LayoutPrediction(
                 bbox=[x, y, x + w, y + h],
-                score=float(bbox_data.get("confidence", 0.0)),
+                score=float(bbox_data.get("confidence") or 0.0),
                 label=label,
                 page=page_number,
                 content=content,
