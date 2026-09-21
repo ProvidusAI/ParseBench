@@ -12,8 +12,8 @@ import numpy as np
 
 from parse_bench.evaluation.metrics.layoutdet.iou import (
     compute_iou_matrix,
-    compute_rotated_iou_matrix,
 )
+from parse_bench.evaluation.metrics.layoutdet.overlap import compute_layout_iou
 
 OverlapFn = Callable[[dict, dict], float]
 
@@ -110,14 +110,13 @@ def rotated_overlap_fn(
                 page_widths.append(page_width)
                 page_heights.append(page_height)
 
-            matrix = compute_rotated_iou_matrix(
+            matrix = compute_layout_iou(
                 gt_boxes,
                 pred_boxes,
                 gt_angles,
                 pred_angles,
                 page_widths=page_widths,
                 page_heights=page_heights,
-                force_rotated=True,
             ).T
             self._matrix_cache[cache_key] = matrix
             return matrix

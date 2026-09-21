@@ -109,3 +109,12 @@ def normalize_bbox_xyxy(bbox: list[float], *, width: float, height: float) -> li
         bbox[2] / width,
         bbox[3] / height,
     ]
+
+
+def filter_layout_output(output: LayoutOutput, page_number: int | None) -> LayoutOutput:
+    """Select a page without mutating predictions; missing identity means page one."""
+    if page_number is None:
+        return output
+    return output.model_copy(
+        update={"predictions": [p for p in output.predictions if (p.page if p.page is not None else 1) == page_number]}
+    )

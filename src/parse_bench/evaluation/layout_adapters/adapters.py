@@ -7,7 +7,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any, cast
 
-from parse_bench.evaluation.layout_adapters.base import LayoutAdapter
+from parse_bench.evaluation.layout_adapters.base import LayoutAdapter, filter_layout_output
 from parse_bench.evaluation.layout_adapters.registry import register_layout_adapter
 from parse_bench.evaluation.metrics.attribution.core import (
     PredBlock,
@@ -96,13 +96,7 @@ class NormalizedLayoutOutputAdapter(LayoutAdapter):
         if not isinstance(inference_result.output, LayoutOutput):
             raise ValueError("Inference output is not LayoutOutput and no provider adapter matched.")
 
-        if page_filter is None:
-            return inference_result.output
-
-        predictions = [
-            prediction for prediction in inference_result.output.predictions if (prediction.page or 1) == page_filter
-        ]
-        return inference_result.output.model_copy(update={"predictions": predictions})
+        return filter_layout_output(inference_result.output, page_filter)
 
 
 @register_layout_adapter(
@@ -172,23 +166,14 @@ class LlamaParseLayoutAdapter(LayoutAdapter):
                 example_id=inference_result.request.example_id,
                 pipeline_name=inference_result.pipeline_name,
             )
-            if page_filter is None:
-                return layout_output
-
-            predictions = [prediction for prediction in layout_output.predictions if prediction.page == page_filter]
-            return layout_output.model_copy(update={"predictions": predictions})
+            return filter_layout_output(layout_output, page_filter)
 
         self._pages_payload = None
         if (
             isinstance(inference_result.output, LayoutOutput)
             and inference_result.output.model == LayoutDetectionModel.LLAMAPARSE
         ):
-            if page_filter is None:
-                return inference_result.output
-            predictions = [
-                prediction for prediction in inference_result.output.predictions if prediction.page == page_filter
-            ]
-            return inference_result.output.model_copy(update={"predictions": predictions})
+            return filter_layout_output(inference_result.output, page_filter)
 
         raise ValueError("LlamaParse adapter requires ParseOutput.layout_pages or raw_output.pages")
 
@@ -958,10 +943,7 @@ class DotsOcrLayoutAdapter(LayoutAdapter):
     ) -> LayoutOutput:
         # Handle synthetic LayoutOutput results (e.g. from cross-eval runner)
         if isinstance(inference_result.output, LayoutOutput):
-            if page_filter is None:
-                return inference_result.output
-            filtered = [p for p in inference_result.output.predictions if p.page == page_filter]
-            return inference_result.output.model_copy(update={"predictions": filtered})
+            return filter_layout_output(inference_result.output, page_filter)
 
         if not isinstance(inference_result.output, ParseOutput):
             raise ValueError("DotsOcrLayoutAdapter requires ParseOutput or LayoutOutput")
@@ -1054,10 +1036,7 @@ class DoclingParseLayoutAdapter(LayoutAdapter):
         page_filter: int | None = None,
     ) -> LayoutOutput:
         if isinstance(inference_result.output, LayoutOutput):
-            if page_filter is None:
-                return inference_result.output
-            filtered = [p for p in inference_result.output.predictions if p.page == page_filter]
-            return inference_result.output.model_copy(update={"predictions": filtered})
+            return filter_layout_output(inference_result.output, page_filter)
 
         if not isinstance(inference_result.output, ParseOutput):
             raise ValueError("DoclingParseLayoutAdapter requires ParseOutput or LayoutOutput")
@@ -1217,10 +1196,7 @@ def _parse_with_layout_to_layout_output(
     """Shared conversion for LLM parse_with_layout adapters (Google/OpenAI/Anthropic)."""
     # Handle LayoutOutput (e.g. from multi-task re-evaluation)
     if isinstance(inference_result.output, LayoutOutput):
-        if page_filter is None:
-            return inference_result.output
-        filtered = [p for p in inference_result.output.predictions if p.page == page_filter]
-        return inference_result.output.model_copy(update={"predictions": filtered})
+        return filter_layout_output(inference_result.output, page_filter)
 
     if not isinstance(inference_result.output, ParseOutput):
         out_type = type(inference_result.output).__name__
@@ -1383,12 +1359,7 @@ class HunyuanOcrLayoutAdapter(LayoutAdapter):
         page_filter: int | None = None,
     ) -> LayoutOutput:
         if isinstance(inference_result.output, LayoutOutput):
-            if page_filter is None:
-                return inference_result.output
-            predictions = [
-                prediction for prediction in inference_result.output.predictions if prediction.page == page_filter
-            ]
-            return inference_result.output.model_copy(update={"predictions": predictions})
+            return filter_layout_output(inference_result.output, page_filter)
         if not isinstance(inference_result.output, ParseOutput):
             raise ValueError("HunyuanOcrLayoutAdapter requires ParseOutput or LayoutOutput")
         if not inference_result.output.layout_pages:
@@ -1582,10 +1553,7 @@ class ReductoLayoutAdapter(LayoutAdapter):
     ) -> LayoutOutput:
         # Handle synthetic LayoutOutput results (e.g. from cross-eval runner)
         if isinstance(inference_result.output, LayoutOutput):
-            if page_filter is None:
-                return inference_result.output
-            filtered = [p for p in inference_result.output.predictions if p.page == page_filter]
-            return inference_result.output.model_copy(update={"predictions": filtered})
+            return filter_layout_output(inference_result.output, page_filter)
 
         if not isinstance(inference_result.output, ParseOutput):
             raise ValueError("ReductoLayoutAdapter requires ParseOutput or LayoutOutput")
@@ -1673,10 +1641,7 @@ class OIParserLayoutAdapter(LayoutAdapter):
     ) -> LayoutOutput:
         # Handle synthetic LayoutOutput results (e.g. from cross-eval re-runs).
         if isinstance(inference_result.output, LayoutOutput):
-            if page_filter is None:
-                return inference_result.output
-            filtered = [p for p in inference_result.output.predictions if p.page == page_filter]
-            return inference_result.output.model_copy(update={"predictions": filtered})
+            return filter_layout_output(inference_result.output, page_filter)
 
         if not isinstance(inference_result.output, ParseOutput):
             raise ValueError("OIParserLayoutAdapter requires ParseOutput or LayoutOutput")
@@ -1760,10 +1725,7 @@ class DatabricksAiParseLayoutAdapter(LayoutAdapter):
         page_filter: int | None = None,
     ) -> LayoutOutput:
         if isinstance(inference_result.output, LayoutOutput):
-            if page_filter is None:
-                return inference_result.output
-            filtered = [p for p in inference_result.output.predictions if p.page == page_filter]
-            return inference_result.output.model_copy(update={"predictions": filtered})
+            return filter_layout_output(inference_result.output, page_filter)
 
         if not isinstance(inference_result.output, ParseOutput):
             raise ValueError("DatabricksAiParseLayoutAdapter requires ParseOutput or LayoutOutput")
@@ -1842,10 +1804,7 @@ class AnyformatLayoutAdapter(LayoutAdapter):
         page_filter: int | None = None,
     ) -> LayoutOutput:
         if isinstance(inference_result.output, LayoutOutput):
-            if page_filter is None:
-                return inference_result.output
-            filtered = [p for p in inference_result.output.predictions if p.page == page_filter]
-            return inference_result.output.model_copy(update={"predictions": filtered})
+            return filter_layout_output(inference_result.output, page_filter)
 
         if not isinstance(inference_result.output, ParseOutput):
             raise ValueError("AnyformatLayoutAdapter requires ParseOutput or LayoutOutput")
@@ -1937,10 +1896,7 @@ class TextractLayoutAdapter(LayoutAdapter):
         page_filter: int | None = None,
     ) -> LayoutOutput:
         if isinstance(inference_result.output, LayoutOutput):
-            if page_filter is None:
-                return inference_result.output
-            filtered = [p for p in inference_result.output.predictions if p.page == page_filter]
-            return inference_result.output.model_copy(update={"predictions": filtered})
+            return filter_layout_output(inference_result.output, page_filter)
 
         if not isinstance(inference_result.output, ParseOutput):
             raise ValueError("TextractLayoutAdapter requires ParseOutput or LayoutOutput")
@@ -2038,10 +1994,7 @@ class LandingAILayoutAdapter(LayoutAdapter):
         page_filter: int | None = None,
     ) -> LayoutOutput:
         if isinstance(inference_result.output, LayoutOutput):
-            if page_filter is None:
-                return inference_result.output
-            filtered = [p for p in inference_result.output.predictions if p.page == page_filter]
-            return inference_result.output.model_copy(update={"predictions": filtered})
+            return filter_layout_output(inference_result.output, page_filter)
 
         if not isinstance(inference_result.output, ParseOutput):
             raise ValueError("LandingAILayoutAdapter requires ParseOutput or LayoutOutput")
@@ -2130,10 +2083,7 @@ class ExtendLayoutAdapter(LayoutAdapter):
         page_filter: int | None = None,
     ) -> LayoutOutput:
         if isinstance(inference_result.output, LayoutOutput):
-            if page_filter is None:
-                return inference_result.output
-            filtered = [p for p in inference_result.output.predictions if p.page == page_filter]
-            return inference_result.output.model_copy(update={"predictions": filtered})
+            return filter_layout_output(inference_result.output, page_filter)
 
         if not isinstance(inference_result.output, ParseOutput):
             raise ValueError("ExtendLayoutAdapter requires ParseOutput or LayoutOutput")
@@ -2223,10 +2173,7 @@ class AzureDILayoutAdapter(LayoutAdapter):
         page_filter: int | None = None,
     ) -> LayoutOutput:
         if isinstance(inference_result.output, LayoutOutput):
-            if page_filter is None:
-                return inference_result.output
-            filtered = [p for p in inference_result.output.predictions if p.page == page_filter]
-            return inference_result.output.model_copy(update={"predictions": filtered})
+            return filter_layout_output(inference_result.output, page_filter)
 
         if not isinstance(inference_result.output, ParseOutput):
             raise ValueError("AzureDILayoutAdapter requires ParseOutput or LayoutOutput")
@@ -2334,10 +2281,7 @@ class GoogleDocAILayoutAdapter(LayoutAdapter):
         page_filter: int | None = None,
     ) -> LayoutOutput:
         if isinstance(inference_result.output, LayoutOutput):
-            if page_filter is None:
-                return inference_result.output
-            filtered = [p for p in inference_result.output.predictions if p.page == page_filter]
-            return inference_result.output.model_copy(update={"predictions": filtered})
+            return filter_layout_output(inference_result.output, page_filter)
 
         if not isinstance(inference_result.output, ParseOutput):
             raise ValueError("GoogleDocAILayoutAdapter requires ParseOutput or LayoutOutput")
@@ -2427,10 +2371,7 @@ class UnstructuredLayoutAdapter(LayoutAdapter):
         page_filter: int | None = None,
     ) -> LayoutOutput:
         if isinstance(inference_result.output, LayoutOutput):
-            if page_filter is None:
-                return inference_result.output
-            filtered = [p for p in inference_result.output.predictions if p.page == page_filter]
-            return inference_result.output.model_copy(update={"predictions": filtered})
+            return filter_layout_output(inference_result.output, page_filter)
 
         if not isinstance(inference_result.output, ParseOutput):
             raise ValueError("UnstructuredLayoutAdapter requires ParseOutput or LayoutOutput")
@@ -2543,10 +2484,7 @@ class DeepSeekOCR2LayoutAdapter(LayoutAdapter):
         page_filter: int | None = None,
     ) -> LayoutOutput:
         if isinstance(inference_result.output, LayoutOutput):
-            if page_filter is None:
-                return inference_result.output
-            filtered = [p for p in inference_result.output.predictions if p.page == page_filter]
-            return inference_result.output.model_copy(update={"predictions": filtered})
+            return filter_layout_output(inference_result.output, page_filter)
 
         if not isinstance(inference_result.output, ParseOutput):
             raise ValueError("DeepSeekOCR2LayoutAdapter requires ParseOutput or LayoutOutput")
@@ -2634,10 +2572,7 @@ class Chandra2LayoutAdapter(LayoutAdapter):
         page_filter: int | None = None,
     ) -> LayoutOutput:
         if isinstance(inference_result.output, LayoutOutput):
-            if page_filter is None:
-                return inference_result.output
-            filtered = [p for p in inference_result.output.predictions if p.page == page_filter]
-            return inference_result.output.model_copy(update={"predictions": filtered})
+            return filter_layout_output(inference_result.output, page_filter)
 
         if not isinstance(inference_result.output, ParseOutput):
             raise ValueError("Chandra2LayoutAdapter requires ParseOutput or LayoutOutput")
@@ -2725,10 +2660,7 @@ class QfOcrLayoutAdapter(LayoutAdapter):
         page_filter: int | None = None,
     ) -> LayoutOutput:
         if isinstance(inference_result.output, LayoutOutput):
-            if page_filter is None:
-                return inference_result.output
-            filtered = [p for p in inference_result.output.predictions if p.page == page_filter]
-            return inference_result.output.model_copy(update={"predictions": filtered})
+            return filter_layout_output(inference_result.output, page_filter)
 
         if not isinstance(inference_result.output, ParseOutput):
             raise ValueError("QfOcrLayoutAdapter requires ParseOutput or LayoutOutput")
@@ -2929,10 +2861,7 @@ class DatalabLayoutAdapter(LayoutAdapter):
         page_filter: int | None = None,
     ) -> LayoutOutput:
         if isinstance(inference_result.output, LayoutOutput):
-            if page_filter is None:
-                return inference_result.output
-            filtered = [p for p in inference_result.output.predictions if p.page == page_filter]
-            return inference_result.output.model_copy(update={"predictions": filtered})
+            return filter_layout_output(inference_result.output, page_filter)
 
         if not isinstance(inference_result.output, ParseOutput):
             raise ValueError("DatalabLayoutAdapter requires ParseOutput or LayoutOutput")
@@ -3026,10 +2955,7 @@ class QwenLayoutAdapter(LayoutAdapter):
         page_filter: int | None = None,
     ) -> LayoutOutput:
         if isinstance(inference_result.output, LayoutOutput):
-            if page_filter is None:
-                return inference_result.output
-            filtered = [p for p in inference_result.output.predictions if p.page == page_filter]
-            return inference_result.output.model_copy(update={"predictions": filtered})
+            return filter_layout_output(inference_result.output, page_filter)
 
         if not isinstance(inference_result.output, ParseOutput):
             raise ValueError("QwenLayoutAdapter requires ParseOutput or LayoutOutput")
@@ -3126,10 +3052,7 @@ class MinerU25LayoutAdapter(LayoutAdapter):
         page_filter: int | None = None,
     ) -> LayoutOutput:
         if isinstance(inference_result.output, LayoutOutput):
-            if page_filter is None:
-                return inference_result.output
-            filtered = [p for p in inference_result.output.predictions if p.page == page_filter]
-            return inference_result.output.model_copy(update={"predictions": filtered})
+            return filter_layout_output(inference_result.output, page_filter)
 
         if not isinstance(inference_result.output, ParseOutput):
             raise ValueError("MinerU25LayoutAdapter requires ParseOutput or LayoutOutput")
@@ -3227,10 +3150,7 @@ class KdlFrontierNanoLayoutAdapter(LayoutAdapter):
         page_filter: int | None = None,
     ) -> LayoutOutput:
         if isinstance(inference_result.output, LayoutOutput):
-            if page_filter is None:
-                return inference_result.output
-            filtered = [p for p in inference_result.output.predictions if p.page == page_filter]
-            return inference_result.output.model_copy(update={"predictions": filtered})
+            return filter_layout_output(inference_result.output, page_filter)
         if not isinstance(inference_result.output, ParseOutput):
             raise ValueError("KdlFrontierNanoLayoutAdapter requires ParseOutput or LayoutOutput")
 
@@ -3299,12 +3219,7 @@ class PyMuPDF4LLMLayoutAdapter(LayoutAdapter):
         page_filter: int | None = None,
     ) -> LayoutOutput:
         if isinstance(inference_result.output, LayoutOutput):
-            if page_filter is None:
-                return inference_result.output
-            filtered = [
-                prediction for prediction in inference_result.output.predictions if prediction.page == page_filter
-            ]
-            return inference_result.output.model_copy(update={"predictions": filtered})
+            return filter_layout_output(inference_result.output, page_filter)
         if not isinstance(inference_result.output, ParseOutput):
             raise ValueError("PyMuPDF4LLMLayoutAdapter requires ParseOutput or LayoutOutput")
 
@@ -3395,10 +3310,7 @@ class PulseLayoutAdapter(LayoutAdapter):
         page_filter: int | None = None,
     ) -> LayoutOutput:
         if isinstance(inference_result.output, LayoutOutput):
-            if page_filter is None:
-                return inference_result.output
-            filtered = [p for p in inference_result.output.predictions if p.page == page_filter]
-            return inference_result.output.model_copy(update={"predictions": filtered})
+            return filter_layout_output(inference_result.output, page_filter)
 
         if not isinstance(inference_result.output, ParseOutput):
             raise ValueError("PulseLayoutAdapter requires ParseOutput or LayoutOutput")
@@ -3494,10 +3406,7 @@ class InfinityParser2LayoutAdapter(LayoutAdapter):
         page_filter: int | None = None,
     ) -> LayoutOutput:
         if isinstance(inference_result.output, LayoutOutput):
-            if page_filter is None:
-                return inference_result.output
-            filtered = [p for p in inference_result.output.predictions if p.page == page_filter]
-            return inference_result.output.model_copy(update={"predictions": filtered})
+            return filter_layout_output(inference_result.output, page_filter)
 
         if not isinstance(inference_result.output, ParseOutput):
             raise ValueError("InfinityParser2LayoutAdapter requires ParseOutput or LayoutOutput")
@@ -3581,12 +3490,7 @@ class LiteParseLayoutAdapter(LayoutAdapter):
         page_filter: int | None = None,
     ) -> LayoutOutput:
         if isinstance(inference_result.output, LayoutOutput):
-            if page_filter is None:
-                return inference_result.output
-            filtered = [
-                prediction for prediction in inference_result.output.predictions if prediction.page == page_filter
-            ]
-            return inference_result.output.model_copy(update={"predictions": filtered})
+            return filter_layout_output(inference_result.output, page_filter)
         if not isinstance(inference_result.output, ParseOutput):
             raise ValueError("LiteParseLayoutAdapter requires ParseOutput or LayoutOutput")
 
@@ -3679,12 +3583,7 @@ class TeleOCRLayoutAdapter(LayoutAdapter):
         page_filter: int | None = None,
     ) -> LayoutOutput:
         if isinstance(inference_result.output, LayoutOutput):
-            if page_filter is None:
-                return inference_result.output
-            predictions = [
-                prediction for prediction in inference_result.output.predictions if prediction.page == page_filter
-            ]
-            return inference_result.output.model_copy(update={"predictions": predictions})
+            return filter_layout_output(inference_result.output, page_filter)
         if not isinstance(inference_result.output, ParseOutput):
             raise ValueError("TeleOCRLayoutAdapter requires ParseOutput or LayoutOutput")
         if not inference_result.output.layout_pages:

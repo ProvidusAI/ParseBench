@@ -449,7 +449,10 @@ def test_detection_cannot_match_a_box_on_another_page(angle):
 
 
 @pytest.mark.parametrize("page", [None, 1])
-def test_native_single_page_detection_without_page_identity(page):
+@pytest.mark.parametrize(
+    "adapter_name", ["NormalizedLayoutOutputAdapter", "Qwen3VLLayoutAdapter", "TeleOCRLayoutAdapter"]
+)
+def test_native_single_page_detection_without_page_identity(page, adapter_name):
     from parse_bench.evaluation.evaluators.layoutdet import LayoutDetectionEvaluator
     from parse_bench.evaluation.layout_adapters.adapters import NormalizedLayoutOutputAdapter
     from parse_bench.schemas.layout_detection_output import LayoutDetectionModel, LayoutPrediction, LayoutTextContent
@@ -484,6 +487,13 @@ def test_native_single_page_detection_without_page_identity(page):
             }
         ],
     )
+    from parse_bench.evaluation.layout_adapters import adapters
+
+    adapter = getattr(adapters, adapter_name)()
+    filtered = adapter.to_layout_output(inference, page_filter=1)
+    assert len(adapter.to_attribution_blocks(filtered, page_number=1)) == 1
+    assert adapter.to_layout_output(inference, page_filter=2).predictions == []
+    assert output.predictions[0].page == page
     evaluator = LayoutDetectionEvaluator()
     metrics = {m.metric_name: m.value for m in evaluator.evaluate(inference, case).metrics}
     assert metrics["AP50"] == metrics["mean_f1"] == metrics["layout_localization_pass_rate"] == 1
