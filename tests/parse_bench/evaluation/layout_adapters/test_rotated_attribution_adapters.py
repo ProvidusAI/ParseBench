@@ -451,7 +451,8 @@ def test_detection_cannot_match_a_box_on_another_page(angle):
 @pytest.mark.parametrize("page", [None, 1])
 def test_native_single_page_detection_without_page_identity(page):
     from parse_bench.evaluation.evaluators.layoutdet import LayoutDetectionEvaluator
-    from parse_bench.schemas.layout_detection_output import LayoutDetectionModel, LayoutPrediction
+    from parse_bench.evaluation.layout_adapters.adapters import NormalizedLayoutOutputAdapter
+    from parse_bench.schemas.layout_detection_output import LayoutDetectionModel, LayoutPrediction, LayoutTextContent
     from parse_bench.test_cases.schema import LayoutDetectionTestCase
 
     output = LayoutOutput(
@@ -460,7 +461,11 @@ def test_native_single_page_detection_without_page_identity(page):
         model=LayoutDetectionModel.YOLO_DOCLAYNET,
         image_width=100,
         image_height=100,
-        predictions=[LayoutPrediction(bbox=[10, 10, 50, 50], label=9, score=1, page=page)],
+        predictions=[
+            LayoutPrediction(
+                bbox=[10, 10, 50, 50], label=9, score=1, page=page, content=LayoutTextContent(text="alpha")
+            )
+        ],
     )
     inference = _result(output=output).model_copy(
         update={"product_type": ProductType.LAYOUT_DETECTION, "pipeline_name": "native"}
@@ -469,11 +474,22 @@ def test_native_single_page_detection_without_page_identity(page):
         test_id="probe",
         group="test",
         file_path="/tmp/probe.png",
-        test_rules=[{"type": "layout", "page": 1, "bbox": [0.1, 0.1, 0.4, 0.4], "canonical_class": "Text"}],
+        test_rules=[
+            {
+                "type": "layout",
+                "page": 1,
+                "bbox": [0.1, 0.1, 0.4, 0.4],
+                "canonical_class": "Text",
+                "content": {"type": "text", "text": "alpha"},
+            }
+        ],
     )
     evaluator = LayoutDetectionEvaluator()
     metrics = {m.metric_name: m.value for m in evaluator.evaluate(inference, case).metrics}
     assert metrics["AP50"] == metrics["mean_f1"] == metrics["layout_localization_pass_rate"] == 1
+    assert metrics["layout_attribution_pass_rate"] == 1
+
+    assert NormalizedLayoutOutputAdapter().to_attribution_blocks(output, page_number=2) == []
     confusion = evaluator.compute_confusion_matrix({"probe": inference}, {"probe": case})
     assert sum(c.count for c in confusion.cells) == 1
     assert not confusion.false_negatives and not confusion.false_positives

@@ -60,7 +60,7 @@ class LayoutAdapter(ABC):
         height = page.height if page is not None and page.height is not None else layout_output.image_height
         blocks: list[PredBlock] = []
         for idx, prediction in enumerate(layout_output.predictions):
-            if prediction.page != page_number:
+            if (prediction.page if prediction.page is not None else 1) != page_number:
                 continue
             if prediction.content is None:
                 continue
