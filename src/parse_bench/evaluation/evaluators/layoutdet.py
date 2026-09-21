@@ -30,6 +30,7 @@ from parse_bench.evaluation.metrics.attribution.geometry import compute_ioa_matr
 from parse_bench.evaluation.metrics.layoutdet.classification_utils import (
     compute_map_at_thresholds,
     compute_per_class_metrics,
+    rotated_overlap_fn,
 )
 from parse_bench.evaluation.metrics.layoutdet.iou import (
     compute_iou_matrix,
@@ -640,7 +641,9 @@ class LayoutDetectionEvaluator(BaseEvaluator):
             page_filter=page_filter,
         )
 
-    def _extract_ground_truth(self, test_case: LayoutDetectionTestCase, *, target_ontology: str) -> list[dict]:
+    def _extract_ground_truth(
+        self, test_case: LayoutDetectionTestCase, *, target_ontology: str, layout_output: LayoutOutput
+    ) -> list[dict]:
         """
         Extract ground truth in evaluation format.
 
@@ -655,6 +658,7 @@ class LayoutDetectionEvaluator(BaseEvaluator):
 
         # Get layout annotations from test_rules
         annotations = test_case.get_layout_annotations()
+        pages = {page.page_number: page for page in layout_output.layout_pages}
 
         for annotation in annotations:
             # Convert normalized COCO format to normalized xyxy format
@@ -674,9 +678,19 @@ class LayoutDetectionEvaluator(BaseEvaluator):
                     # Unknown class, skip
                     continue
 
+            page_number = annotation.page + 1
+            page = pages.get(page_number)
             ground_truth.append(
                 {
                     "bbox": bbox_xyxy,
+                    "r": annotation.r,
+                    "page": page_number,
+                    "page_width": page.width
+                    if page is not None and page.width is not None
+                    else layout_output.image_width,
+                    "page_height": page.height
+                    if page is not None and page.height is not None
+                    else layout_output.image_height,
                     "class_name": class_name,
                 }
             )
@@ -729,7 +743,9 @@ class LayoutDetectionEvaluator(BaseEvaluator):
             layout_output,
             target_ontology=target_ontology,
         )
-        ground_truth = self._extract_ground_truth(test_case, target_ontology=target_ontology)
+        ground_truth = self._extract_ground_truth(
+            test_case, target_ontology=target_ontology, layout_output=layout_output
+        )
 
         normalized_ground_truth = [
             {
@@ -761,8 +777,21 @@ class LayoutDetectionEvaluator(BaseEvaluator):
 
         metrics: list[MetricValue] = []
 
+        # Use rendered footprints whenever either side is rotated.
+        overlap_fn = (
+            rotated_overlap_fn({})
+            if any((entry.get("r") or 0) % 360 for entry in predictions + normalized_ground_truth)
+            else None
+        )
         # Compute mAP at multiple thresholds
-        map_metrics = compute_map_at_thresholds(predictions, normalized_ground_truth, class_names, self._iou_thresholds)
+        map_metrics = compute_map_at_thresholds(
+            predictions,
+            normalized_ground_truth,
+            class_names,
+            self._iou_thresholds,
+            overlap_fn=overlap_fn,
+            page_key="page",
+        )
 
         metrics.append(
             MetricValue(
@@ -788,7 +817,12 @@ class LayoutDetectionEvaluator(BaseEvaluator):
 
         # Compute per-class metrics at IoU=0.5
         per_class_metrics = compute_per_class_metrics(
-            predictions, normalized_ground_truth, class_names, iou_threshold=0.5
+            predictions,
+            normalized_ground_truth,
+            class_names,
+            iou_threshold=0.5,
+            overlap_fn=overlap_fn,
+            page_key="page",
         )
 
         # Add per-class F1 scores
@@ -916,19 +950,29 @@ class LayoutDetectionEvaluator(BaseEvaluator):
 
             gt_boxes = [coco_normalized_to_xyxy_normalized(rule.bbox) for rule in layout_rules]
             pred_boxes = [pred["bbox"] for pred in page_predictions]
-            iou_matrix = compute_iou_matrix(
-                np.array(gt_boxes, dtype=float) if gt_boxes else np.zeros((0, 4)),
-                np.array(pred_boxes, dtype=float) if pred_boxes else np.zeros((0, 4)),
-            )
-
-            ioa_matrix = compute_ioa_matrix(
-                np.array(gt_boxes, dtype=float) if gt_boxes else np.zeros((0, 4)),
-                np.array(pred_boxes, dtype=float) if pred_boxes else np.zeros((0, 4)),
-            )
-            ioa_matrix_pred = compute_ioa_matrix(
-                np.array(pred_boxes, dtype=float) if pred_boxes else np.zeros((0, 4)),
-                np.array(gt_boxes, dtype=float) if gt_boxes else np.zeros((0, 4)),
-            )
+            gt_array = np.array(gt_boxes, dtype=float).reshape(-1, 4)
+            pred_array = np.array(pred_boxes, dtype=float).reshape(-1, 4)
+            gt_angles = [rule.r for rule in layout_rules]
+            pred_angles = [pred.get("r") for pred in page_predictions]
+            if any((angle or 0) % 360 for angle in gt_angles + pred_angles):
+                page = next((p for p in layout_output.layout_pages if p.page_number == page_number), None)
+                dimensions = {
+                    "page_width": page.width
+                    if page is not None and page.width is not None
+                    else layout_output.image_width,
+                    "page_height": page.height
+                    if page is not None and page.height is not None
+                    else layout_output.image_height,
+                }
+                iou_matrix = compute_rotated_iou_matrix(
+                    gt_array, pred_array, gt_angles, pred_angles, force_rotated=True, **dimensions
+                )
+                ioa_matrix = compute_rotated_ioa_matrix(gt_array, pred_array, gt_angles, pred_angles, **dimensions)
+                ioa_matrix_pred = compute_rotated_ioa_matrix(pred_array, gt_array, pred_angles, gt_angles, **dimensions)
+            else:
+                iou_matrix = compute_iou_matrix(gt_array, pred_array)
+                ioa_matrix = compute_ioa_matrix(gt_array, pred_array)
+                ioa_matrix_pred = compute_ioa_matrix(pred_array, gt_array)
 
             if gt_boxes:
                 if pred_boxes:
@@ -1586,7 +1630,9 @@ class LayoutDetectionEvaluator(BaseEvaluator):
                     target_ontology=target_ontology,
                     page_filter=page_filter,
                 )
-                ground_truth = self._extract_ground_truth(test_case, target_ontology=target_ontology)
+                ground_truth = self._extract_ground_truth(
+                    test_case, target_ontology=target_ontology, layout_output=layout_output
+                )
 
                 ground_truth = [
                     {
@@ -1632,7 +1678,23 @@ class LayoutDetectionEvaluator(BaseEvaluator):
             gt_bboxes = np.array(gt_bboxes_list, dtype=float)
 
             # Compute IoU matrix
-            iou_matrix = compute_iou_matrix(pred_bboxes, gt_bboxes)
+            if any((entry.get("r") or 0) % 360 for entry in predictions + ground_truth):
+                iou_matrix = compute_rotated_iou_matrix(
+                    gt_bboxes,
+                    pred_bboxes,
+                    [gt.get("r") for gt in ground_truth],
+                    [pred.get("r") for pred in predictions],
+                    page_widths=[gt["page_width"] for gt in ground_truth],
+                    page_heights=[gt["page_height"] for gt in ground_truth],
+                    force_rotated=True,
+                ).T
+            else:
+                iou_matrix = compute_iou_matrix(pred_bboxes, gt_bboxes)
+            same_page = (
+                np.array([pred["page"] for pred in predictions])[:, None]
+                == np.array([gt["page"] for gt in ground_truth])[None, :]
+            )
+            iou_matrix = np.where(same_page, iou_matrix, 0.0)
 
             # Class-agnostic greedy matching
             sorted_indices = np.argsort(-pred_scores)

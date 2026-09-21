@@ -230,8 +230,11 @@ def test_generic_pages_keep_their_own_aspect_ratio(reverse):
         assert compute_attribution_metrics(gt, [block]).af1 == 1
 
 
-@pytest.mark.parametrize("angle,expected", [(30, 1), (120, 0)])
-def test_shared_evaluator_rotated_diagnostics_agree_with_scores(angle, expected):
+@pytest.mark.parametrize(
+    "gt_angle,angle,expected",
+    [(30, 30, 1), (30, 120, 0), (None, 90, 0), (90, None, 0), (None, None, 1), (0, 360, 1)],
+)
+def test_shared_evaluator_rotated_diagnostics_agree_with_scores(gt_angle, angle, expected):
     from parse_bench.evaluation.evaluators.layoutdet import LayoutDetectionEvaluator
     from parse_bench.test_cases.schema import LayoutDetectionTestCase
 
@@ -253,7 +256,7 @@ def test_shared_evaluator_rotated_diagnostics_agree_with_scores(angle, expected)
                 "type": "layout",
                 "page": 1,
                 "bbox": [0.2, 0.45, 0.6, 0.05],
-                "r": 30,
+                "r": gt_angle,
                 "canonical_class": "Text",
                 "content": {"type": "text", "text": "alpha"},
             }
@@ -261,10 +264,25 @@ def test_shared_evaluator_rotated_diagnostics_agree_with_scores(angle, expected)
     )
     evaluation = LayoutDetectionEvaluator().evaluate(inference, case)
     metrics = {m.metric_name: m for m in evaluation.metrics}
+    for name in (
+        "AP50",
+        "AP75",
+        "mAP@[.50:.95]",
+        "mean_f1",
+        "layout_localization_pass_rate",
+        "layout_classification_pass_rate",
+    ):
+        assert metrics[name].value == expected, name
     assert metrics["af1"].value == expected
     assert metrics["layout_attribution_pass_rate"].value == expected
     rules = metrics["layout_element_rule_pass_rate"].metadata["rule_results"]
     assert rules[0]["attribution_pass"] is bool(expected)
+    assert rules[0]["localization_pass"] is bool(expected)
+    assert rules[0]["classification_pass"] is bool(expected)
+    confusion = LayoutDetectionEvaluator().compute_confusion_matrix({"probe": inference}, {"probe": case})
+    assert sum(cell.count for cell in confusion.cells) == expected
+    assert len(confusion.false_negatives.get("Text", [])) == 1 - expected
+    assert len(confusion.false_positives.get("Text", [])) == 1 - expected
 
 
 def test_multisize_raw_pages_retain_geometry_after_serialization():
@@ -332,6 +350,7 @@ def test_scored_label_projection_keeps_rotation_and_page_dimensions(use_items):
     assert len(projected) == 1
     assert projected[0]["bbox"] == pytest.approx([0.2, 0.225, 0.8, 0.25])
     assert projected[0]["r"] == -30
+    assert (projected[0]["page_width"], projected[0]["page_height"]) == (100, 200)
 
 
 @pytest.mark.parametrize("adapter_class", [DoclingParseLayoutAdapter, Qwen3VLLayoutAdapter])
@@ -344,3 +363,86 @@ def test_normalized_ir_zero_confidence_stays_zero(adapter_class):
         items=[LayoutItemIR(type="text", value="alpha", bbox=segment, layout_segments=[segment])],
     )
     assert adapter_class().to_layout_output(_result(pages=[page])).predictions[0].score == 0
+
+
+@pytest.mark.parametrize("with_predictions", [True, False])
+@pytest.mark.parametrize("reverse", [False, True])
+def test_detection_matches_rendered_footprints_on_different_page_sizes(reverse, with_predictions):
+    from parse_bench.evaluation.evaluators.layoutdet import LayoutDetectionEvaluator
+    from parse_bench.test_cases.schema import LayoutDetectionTestCase
+
+    pages = []
+    rules = []
+    for number, width, height, gt_box in [
+        (1, 200, 100, [0.475, 0.25, 0.05, 0.4]),
+        (2, 100, 200, [0.4, 0.4, 0.2, 0.1]),
+    ]:
+        box = {"x": 0.4 * width, "y": 0.4 * height, "w": 0.2 * width, "h": 0.1 * height, "r": 90, "label": "text"}
+        pages.append(
+            {
+                "page": number,
+                "width": width,
+                "height": height,
+                "items": [{"type": "text", "value": "alpha", "layoutAwareBbox": [box]}] if with_predictions else [],
+            }
+        )
+        # A quarter turn on the physical page produces these upright footprints.
+        # The missing GT angle also exercises prediction-only rotation.
+        rules.append({"type": "layout", "page": number, "bbox": gt_box, "canonical_class": "Text"})
+    if reverse:
+        pages.reverse()
+    output = extract_all_layouts_from_llamaparse_output({"pages": pages})
+    inference = _result(output=output).model_copy(update={"product_type": ProductType.LAYOUT_DETECTION})
+    case = LayoutDetectionTestCase(test_id="probe", group="test", file_path="/tmp/probe.pdf", test_rules=rules)
+    evaluator = LayoutDetectionEvaluator()
+    metrics = {m.metric_name: m for m in evaluator.evaluate(inference, case).metrics}
+    for name in (
+        "AP50",
+        "AP75",
+        "mAP@[.50:.95]",
+        "mean_f1",
+        "layout_localization_pass_rate",
+        "layout_classification_pass_rate",
+    ):
+        assert metrics[name].value == int(with_predictions), name
+    confusion = evaluator.compute_confusion_matrix({"probe": inference}, {"probe": case})
+    assert sum(cell.count for cell in confusion.cells) == 2 * int(with_predictions)
+
+
+@pytest.mark.parametrize("angle", [None, 30])
+def test_detection_cannot_match_a_box_on_another_page(angle):
+    from parse_bench.evaluation.evaluators.layoutdet import LayoutDetectionEvaluator
+    from parse_bench.test_cases.schema import LayoutDetectionTestCase
+
+    pages = []
+    rules = []
+    for number, x, gt_x in [(1, 10, 70), (2, 70, 10)]:
+        box = {"x": x, "y": 45, "w": 20, "h": 5, "r": angle, "label": "text"}
+        pages.append(
+            {
+                "page": number,
+                "width": 100,
+                "height": 100,
+                "items": [{"type": "text", "value": "alpha", "layoutAwareBbox": [box]}],
+            }
+        )
+        rules.append(
+            {
+                "type": "layout",
+                "page": number,
+                "bbox": [gt_x / 100, 0.45, 0.2, 0.05],
+                "r": angle,
+                "canonical_class": "Text",
+            }
+        )
+    output = extract_all_layouts_from_llamaparse_output({"pages": pages})
+    inference = _result(output=output).model_copy(update={"product_type": ProductType.LAYOUT_DETECTION})
+    case = LayoutDetectionTestCase(test_id="probe", group="test", file_path="/tmp/probe.pdf", test_rules=rules)
+    evaluator = LayoutDetectionEvaluator()
+    metrics = {m.metric_name: m for m in evaluator.evaluate(inference, case).metrics}
+    for name in ("AP50", "mean_f1", "layout_localization_pass_rate", "layout_classification_pass_rate"):
+        assert metrics[name].value == 0, name
+    confusion = evaluator.compute_confusion_matrix({"probe": inference}, {"probe": case})
+    assert sum(cell.count for cell in confusion.cells) == 0
+    assert len(confusion.false_negatives["Text"]) == 2
+    assert len(confusion.false_positives["Text"]) == 2

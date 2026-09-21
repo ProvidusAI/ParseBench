@@ -101,6 +101,8 @@ def project_layout_predictions(
                             height=page.height if page.height is not None else layout_output.image_height,
                         ),
                         "r": segment.r if segment is not None else None,
+                        "page_width": page.width if page.width is not None else layout_output.image_width,
+                        "page_height": page.height if page.height is not None else layout_output.image_height,
                         "class_name": class_name,
                         "score": score,
                         "page": page.page_number,
@@ -149,6 +151,10 @@ def project_layout_predictions(
                     height=page.height if page is not None and page.height is not None else layout_output.image_height,
                 ),
                 "r": prediction.r,
+                "page_width": page.width if page is not None and page.width is not None else layout_output.image_width,
+                "page_height": page.height
+                if page is not None and page.height is not None
+                else layout_output.image_height,
                 "class_name": class_name,
                 "score": score,
                 "page": prediction.page,
