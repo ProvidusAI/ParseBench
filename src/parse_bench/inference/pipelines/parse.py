@@ -2342,6 +2342,22 @@ def register_parse_pipelines(register_fn) -> None:  # type: ignore[no-untyped-de
         )
     )
 
+    # Anthropic Opus 5.5 - Parse with Layout File
+    # Adaptive thinking is always on and cannot be disabled, so no `thinking`
+    # key here; effort defaults to "medium" server-side.
+    register_fn(
+        PipelineSpec(
+            pipeline_name="anthropic_opus_5_5_parse_with_layout_file",
+            provider_name="anthropic",
+            product_type=ProductType.PARSE,
+            config={
+                "model": "claude-opus-5-5",
+                "max_tokens": 32768,
+                "mode": "parse_with_layout_file",
+            },
+        )
+    )
+
     # Anthropic Sonnet 5 - Parse with Layout (image mode) - Adaptive Thinking
     register_fn(
         PipelineSpec(

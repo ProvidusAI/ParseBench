@@ -78,6 +78,9 @@ _ANTHROPIC_PRICING_PER_M: dict[str, tuple[float, float]] = {
     # _get_pricing so benchmark costs switch to standard pricing on time.
     "claude-sonnet-5": (3.00, 15.00),
     "claude-haiku-4-5": (1.00, 5.00),
+    # Opus 5.5 is priced below the Opus 4.x line; longest-prefix matching in
+    # _get_pricing keeps any future "claude-opus-5" entry from shadowing it.
+    "claude-opus-5-5": (4.00, 20.00),
     "claude-haiku-3-5": (0.80, 4.00),
     "claude-haiku-3": (0.25, 1.25),
     "claude-sonnet-4": (3.00, 15.00),
@@ -177,9 +180,9 @@ class AnthropicProvider(Provider):
         self._mode = self.base_config.get("mode", "image")  # "image", "file", or "parse_with_layout"
         self._thinking = self.base_config.get("thinking")  # e.g. {"type": "enabled", "budget_tokens": 32768}
         self._effort = self.base_config.get("effort")  # e.g. "high", "xhigh" — for Opus 4.7+
-        # Opus 4.7+ and Fable 5 reject temperature/top_p/top_k at non-default values (400 error)
+        # Opus 4.7+, Opus 5.x and Fable 5 reject temperature/top_p/top_k at non-default values (400 error)
         self._supports_temperature = not self._model.startswith(
-            ("claude-opus-4-7", "claude-opus-4-8", "claude-fable-5")
+            ("claude-opus-4-7", "claude-opus-4-8", "claude-opus-5", "claude-fable-5")
         )
 
         if self._mode not in ("image", "file", "parse_with_layout", "parse_with_layout_file"):
