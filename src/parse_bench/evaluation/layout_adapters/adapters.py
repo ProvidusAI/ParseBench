@@ -63,6 +63,26 @@ class _GranularPage:
     cells: list[_GranularTextUnit] = field(default_factory=list)
 
 
+def _raw_output_page_field_is_list(raw_output: Any, field: str) -> bool:
+    """True when raw_output has a non-empty top-level "pages" list whose first
+    entry carries `field` as a list.
+
+    Several parse providers land on the identical ParseOutput.layout_pages
+    representation, so once create_layout_adapter_for_result's shape-matcher
+    fallback is running (registry.py), the type alone cannot tell them apart.
+    The raw payload still can: kdl_frontier_nano (and its florin_parser_nano /
+    rakedoc_nano forks) emit `{"pages": [{"elements": [...]}]}`, distinct from
+    LlamaParse's `{"pages": [{"items": [...]}]}`.
+    """
+    if not isinstance(raw_output, dict):
+        return False
+    pages = raw_output.get("pages")
+    if not isinstance(pages, list) or not pages:
+        return False
+    first_page = pages[0]
+    return isinstance(first_page, dict) and isinstance(first_page.get(field), list)
+
+
 @register_layout_adapter("__default__", priority=-100)
 class NormalizedLayoutOutputAdapter(LayoutAdapter):
     """Adapter for providers that already emit `LayoutOutput`."""
@@ -102,7 +122,9 @@ class LlamaParseLayoutAdapter(LayoutAdapter):
     @classmethod
     def matches(cls, inference_result: InferenceResult) -> bool:
         if isinstance(inference_result.output, ParseOutput):
-            if len(inference_result.output.layout_pages) > 0 or len(inference_result.output.grounded_pages) > 0:
+            if (
+                len(inference_result.output.layout_pages) > 0 or len(inference_result.output.grounded_pages) > 0
+            ) and not _raw_output_page_field_is_list(inference_result.raw_output, "elements"):
                 return True
 
         if (
@@ -1391,6 +1413,87 @@ class Gemma4LayoutAdapter(LayoutAdapter):
         )
 
 
+@register_layout_adapter("hunyuanocr", priority=90)
+class HunyuanOcrLayoutAdapter(LayoutAdapter):
+    """Project HunyuanOCR's normalized boxes and canonical labels.
+
+    ``LayoutOutput`` has one global coordinate frame. HunyuanOCR already emits
+    every page on a normalized 0-1000 grid, so all pages are projected into the
+    same 1000x1000 frame instead of mixing their source pixel dimensions.
+    """
+
+    _SCALE = 1000
+
+    @classmethod
+    def matches(cls, inference_result: InferenceResult) -> bool:
+        if not isinstance(inference_result.output, ParseOutput):
+            return False
+        if not inference_result.output.layout_pages:
+            return False
+        raw_output = inference_result.raw_output
+        if not isinstance(raw_output, dict):
+            return False
+        config = raw_output.get("_config", {})
+        if not isinstance(config, dict):
+            return False
+        return config.get("served_model_name") == "tencent/HunyuanOCR"
+
+    def to_layout_output(
+        self,
+        inference_result: InferenceResult,
+        *,
+        page_filter: int | None = None,
+    ) -> LayoutOutput:
+        if isinstance(inference_result.output, LayoutOutput):
+            if page_filter is None:
+                return inference_result.output
+            predictions = [
+                prediction for prediction in inference_result.output.predictions if prediction.page == page_filter
+            ]
+            return inference_result.output.model_copy(update={"predictions": predictions})
+        if not isinstance(inference_result.output, ParseOutput):
+            raise ValueError("HunyuanOcrLayoutAdapter requires ParseOutput or LayoutOutput")
+        if not inference_result.output.layout_pages:
+            raise ValueError("HunyuanOcrLayoutAdapter requires non-empty layout_pages")
+
+        predictions: list[LayoutPrediction] = []
+        for page in inference_result.output.layout_pages:
+            if page_filter is not None and page.page_number != page_filter:
+                continue
+            for item in page.items:
+                segments = item.layout_segments or ([item.bbox] if item.bbox is not None else [])
+                for segment in segments:
+                    if segment is None:
+                        continue
+                    label = segment.label or item.type or "Text"
+                    predictions.append(
+                        LayoutPrediction(
+                            bbox=[
+                                segment.x * self._SCALE,
+                                segment.y * self._SCALE,
+                                (segment.x + segment.w) * self._SCALE,
+                                (segment.y + segment.h) * self._SCALE,
+                            ],
+                            score=float(segment.confidence or 1.0),
+                            label=label,
+                            page=page.page_number,
+                            content=_build_dots_ocr_content(label, item.value),
+                            provider_metadata={"order_index": len(predictions)},
+                        )
+                    )
+
+        return LayoutOutput(
+            task_type="layout_detection",
+            example_id=inference_result.request.example_id,
+            pipeline_name=inference_result.pipeline_name,
+            model=LayoutDetectionModel.HUNYUANOCR_LAYOUT,
+            image_width=self._SCALE,
+            image_height=self._SCALE,
+            predictions=predictions,
+            markdown=inference_result.output.markdown,
+        )
+
+
 @register_layout_adapter("deepseek", priority=90)
 class DeepSeekLayoutAdapter(LayoutAdapter):
     """Adapter that extracts LayoutOutput from DeepSeek ParseOutput.layout_pages.
@@ -1608,7 +1711,12 @@ class OIParserLayoutAdapter(LayoutAdapter):
 
     @classmethod
     def matches(cls, inference_result: InferenceResult) -> bool:
-        return isinstance(inference_result.output, ParseOutput) and bool(inference_result.output.layout_pages)
+        if not (isinstance(inference_result.output, ParseOutput) and bool(inference_result.output.layout_pages)):
+            return False
+        # oi-parser's own raw response nests everything under "output" (see
+        # normalize() below) and never carries a top-level "pages" list of
+        # "elements", so this only ever excludes a genuinely kdl-shaped payload.
+        return not _raw_output_page_field_is_list(inference_result.raw_output, "elements")
 
     def to_layout_output(
         self,
@@ -1704,9 +1812,11 @@ class CohereParseLayoutAdapter(LayoutAdapter):
 
     @classmethod
     def matches(cls, inference_result: InferenceResult) -> bool:
-        return isinstance(inference_result.output, ParseOutput) and bool(
-            inference_result.output.layout_pages
-        )
+        if not (isinstance(inference_result.output, ParseOutput) and bool(inference_result.output.layout_pages)):
+            return False
+        # KDL-family results also carry layout_pages, but their raw pages use
+        # "elements" rather than Cohere's page-level markdown payload.
+        return not _raw_output_page_field_is_list(inference_result.raw_output, "elements")
 
     def to_layout_output(
         self,
@@ -1853,6 +1963,91 @@ class DatabricksAiParseLayoutAdapter(LayoutAdapter):
             example_id=inference_result.request.example_id,
             pipeline_name=inference_result.pipeline_name,
             model=LayoutDetectionModel.DATABRICKS_LAYOUT,
+            image_width=max(output_width, 1),
+            image_height=max(output_height, 1),
+            predictions=predictions,
+        )
+
+
+@register_layout_adapter("anyformat", priority=90)
+class AnyformatLayoutAdapter(LayoutAdapter):
+    """Adapter that extracts LayoutOutput from anyformat ParseOutput.layout_pages
+    (normalized [0,1] xywh + the API's block type as raw label; ``AnyformatLabelMapper``
+    canonicalizes it)."""
+
+    @classmethod
+    def matches(cls, inference_result: InferenceResult) -> bool:
+        if not isinstance(inference_result.output, ParseOutput) or not inference_result.output.layout_pages:
+            return False
+        raw_output = inference_result.raw_output
+        return isinstance(raw_output, dict) and isinstance(raw_output.get("results"), dict)
+
+    def to_layout_output(
+        self,
+        inference_result: InferenceResult,
+        *,
+        page_filter: int | None = None,
+    ) -> LayoutOutput:
+        if isinstance(inference_result.output, LayoutOutput):
+            if page_filter is None:
+                return inference_result.output
+            filtered = [p for p in inference_result.output.predictions if p.page == page_filter]
+            return inference_result.output.model_copy(update={"predictions": filtered})
+
+        if not isinstance(inference_result.output, ParseOutput):
+            raise ValueError("AnyformatLayoutAdapter requires ParseOutput or LayoutOutput")
+
+        layout_pages = inference_result.output.layout_pages
+        if not layout_pages:
+            return LayoutOutput(
+                task_type="layout_detection",
+                example_id=inference_result.request.example_id,
+                pipeline_name=inference_result.pipeline_name,
+                model=LayoutDetectionModel.ANYFORMAT_LAYOUT,
+                image_width=1,
+                image_height=1,
+                predictions=[],
+            )
+
+        first_page = layout_pages[0]
+        output_width = int(first_page.width or 1)
+        output_height = int(first_page.height or 1)
+
+        predictions: list[LayoutPrediction] = []
+        for lp in layout_pages:
+            if page_filter is not None and lp.page_number != page_filter:
+                continue
+            page_w = float(lp.width or output_width)
+            page_h = float(lp.height or output_height)
+            for item in lp.items:
+                regions = getattr(item, "regions", None) or []
+                region_texts = [r.text for r in regions if r.bbox is not None]
+                segments = (
+                    [r.bbox for r in regions if r.bbox is not None]
+                    or item.layout_segments
+                    or ([item.bbox] if item.bbox is not None else [])
+                )
+                for region_index, seg in enumerate(segments):
+                    label = seg.label or item.type or "Text"
+                    text = region_texts[region_index] if region_index < len(region_texts) else ""
+                    if not text and len(segments) == 1:
+                        text = item.value
+                    predictions.append(
+                        LayoutPrediction(
+                            bbox=[seg.x * page_w, seg.y * page_h, (seg.x + seg.w) * page_w, (seg.y + seg.h) * page_h],
+                            score=float(seg.confidence) if seg.confidence is not None else 1.0,
+                            label=label,
+                            page=lp.page_number,
+                            content=_build_vendor_content(label, text) if text else None,
+                            provider_metadata={"order_index": len(predictions)},
+                        )
+                    )
+
+        return LayoutOutput(
+            task_type="layout_detection",
+            example_id=inference_result.request.example_id,
+            pipeline_name=inference_result.pipeline_name,
+            model=LayoutDetectionModel.ANYFORMAT_LAYOUT,
             image_width=max(output_width, 1),
             image_height=max(output_height, 1),
             predictions=predictions,
@@ -3137,7 +3332,15 @@ class KdlFrontierNanoLayoutAdapter(LayoutAdapter):
     @classmethod
     def matches(cls, inference_result: InferenceResult) -> bool:
         out = inference_result.output
-        return isinstance(out, ParseOutput) and bool(out.layout_pages)
+        if not (isinstance(out, ParseOutput) and bool(out.layout_pages)):
+            return False
+        raw_output = inference_result.raw_output
+        if isinstance(raw_output, dict) and raw_output:
+            # Real inference carries the provider's raw response, which is the
+            # only place left to tell this provider apart from LlamaParse/
+            # oi-parser once they all agree on ParseOutput.layout_pages.
+            return _raw_output_page_field_is_list(raw_output, "elements")
+        return True
 
     def to_layout_output(
         self,
@@ -3541,6 +3744,105 @@ class LiteParseLayoutAdapter(LayoutAdapter):
             model=LayoutDetectionModel.LITEPARSE_LAYOUT,
             image_width=max(output_width, 1),
             image_height=max(output_height, 1),
+            predictions=predictions,
+            markdown=inference_result.output.markdown,
+        )
+
+
+@register_layout_adapter("hpd_parsing", priority=90)
+class HpdParsingLayoutAdapter(LiteParseLayoutAdapter):
+    """Convert HPD-Parsing's normalized ``layout_pages`` to layout output."""
+
+    @classmethod
+    def matches(cls, inference_result: InferenceResult) -> bool:
+        if not isinstance(inference_result.output, ParseOutput) or not inference_result.output.layout_pages:
+            return False
+        pages = inference_result.raw_output.get("pages")
+        return (
+            isinstance(pages, list)
+            and bool(pages)
+            and isinstance(pages[0], dict)
+            and "raw_response" in pages[0]
+            and inference_result.raw_output.get("prompt_mode") in {"fork", "plain"}
+        )
+
+    def to_layout_output(
+        self,
+        inference_result: InferenceResult,
+        *,
+        page_filter: int | None = None,
+    ) -> LayoutOutput:
+        layout_output = super().to_layout_output(inference_result, page_filter=page_filter)
+        return layout_output.model_copy(update={"model": LayoutDetectionModel.HPD_PARSING_LAYOUT})
+
+
+@register_layout_adapter("teleocr", priority=90)
+class TeleOCRLayoutAdapter(LayoutAdapter):
+    """Project TeleOCR's normalized page boxes into one common frame.
+
+    ``LayoutOutput`` carries one global width and height, so predictions from
+    differently sized PDF pages cannot use their original pixel dimensions.
+    TeleOCR already stores every segment in normalized [0, 1] coordinates;
+    scaling all pages to the same square preserves those coordinates through
+    evaluator normalization, with or without a page filter.
+    """
+
+    _SCALE = 1000
+
+    def to_layout_output(
+        self,
+        inference_result: InferenceResult,
+        *,
+        page_filter: int | None = None,
+    ) -> LayoutOutput:
+        if isinstance(inference_result.output, LayoutOutput):
+            if page_filter is None:
+                return inference_result.output
+            predictions = [
+                prediction for prediction in inference_result.output.predictions if prediction.page == page_filter
+            ]
+            return inference_result.output.model_copy(update={"predictions": predictions})
+        if not isinstance(inference_result.output, ParseOutput):
+            raise ValueError("TeleOCRLayoutAdapter requires ParseOutput or LayoutOutput")
+        if not inference_result.output.layout_pages:
+            raise ValueError("TeleOCRLayoutAdapter requires non-empty layout_pages")
+
+        predictions: list[LayoutPrediction] = []
+        for page in inference_result.output.layout_pages:
+            if page_filter is not None and page.page_number != page_filter:
+                continue
+            for item in page.items:
+                segments = item.layout_segments or ([item.bbox] if item.bbox is not None else [])
+                for segment in segments:
+                    if segment is None:
+                        continue
+                    label = segment.label or item.type or "Text"
+                    is_table = label == "Table"
+                    content_text = item.html if is_table and item.html else item.md or item.value
+                    content = _build_docling_parse_content("table" if is_table else "text", content_text)
+                    predictions.append(
+                        LayoutPrediction(
+                            bbox=[
+                                segment.x * self._SCALE,
+                                segment.y * self._SCALE,
+                                (segment.x + segment.w) * self._SCALE,
+                                (segment.y + segment.h) * self._SCALE,
+                            ],
+                            score=segment.confidence if segment.confidence is not None else 1.0,
+                            label=label,
+                            page=page.page_number,
+                            content=content,
+                            provider_metadata={"order_index": len(predictions), "score_source": "unavailable_default"},
+                        )
+                    )
+
+        return LayoutOutput(
+            task_type="layout_detection",
+            example_id=inference_result.request.example_id,
+            pipeline_name=inference_result.pipeline_name,
+            model=LayoutDetectionModel.TELEOCR_LAYOUT,
+            image_width=self._SCALE,
+            image_height=self._SCALE,
             predictions=predictions,
             markdown=inference_result.output.markdown,
         )

@@ -71,12 +71,15 @@ def test_header_footer_folding_is_page_local_and_idempotent():
             ParseLayoutPageIR(page_number=1, items=[], page_header_markdown="Header", page_footer_markdown="Footer")
         ],
     )
-    folded = delivered_markdown(output.markdown, output)
+    # Folding is opt-in: without the dataset flag the body is scored as delivered.
+    assert delivered_markdown(output.markdown, output) == output.markdown
+    folded = delivered_markdown(output.markdown, output, fold_page_sections=True)
     assert folded == "Header\n\nBody\n\nFooter"
     output.pages[0].markdown = folded
-    assert delivered_markdown(folded, output) == folded
+    assert delivered_markdown(folded, output, fold_page_sections=True) == folded
     rule = create_test_rule(reference_rules(folded)[0])
     rule.parse_output = output
+    rule.fold_page_sections = True
     assert rule.run(folded)[2] == 1
     with pytest.raises(ValueError, match="consistent document and page"):
         rule.run(folded + " hallucination")
@@ -87,3 +90,22 @@ def test_legacy_dispatch_is_unchanged():
     assert type(rule).__name__ == "MissingWordPercentRule"
     with pytest.raises(ValueError):
         create_test_rule({"type": "present", "text": "alpha", "text_normalization": "text-v2.1"})
+
+
+def test_metric_folds_page_sections_only_when_the_test_case_asks():
+    from parse_bench.evaluation.metrics.parse.rule_based_metric import RuleBasedMetric
+
+    output = ParseOutput(
+        example_id="example",
+        pipeline_name="test",
+        markdown="Body",
+        pages=[PageIR(page_index=0, markdown="Body")],
+        layout_pages=[
+            ParseLayoutPageIR(page_number=1, items=[], page_header_markdown="Header", page_footer_markdown="Footer")
+        ],
+    )
+    rules = [rule for rule in reference_rules("Header\n\nBody\n\nFooter") if rule["type"] == "missing_word_percent"]
+    body_only = RuleBasedMetric().compute(expected=rules, actual="Body", parse_output=output)
+    folded = RuleBasedMetric().compute(expected=rules, actual="Body", parse_output=output, fold_page_sections=True)
+    assert body_only.value < 1
+    assert folded.value == 1

@@ -13,6 +13,22 @@ All notable changes to `parse-bench` are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- `diagram_graph` rules no longer crash when their `reference_image` resolves.
+  The rule reached for `rules_image.thumbnail_data_uri`, a module that only
+  exists in the internal harness, so scoring a diagram with a reference render
+  raised `ModuleNotFoundError` instead of returning a score. The crash was
+  latent until 1.0.1 started forwarding the test case and source paths, which
+  is what lets the reference resolve in the first place.
+
+### Added
+- `register_reference_thumbnailer` (exported from `parse_bench.extensions`):
+  how a rule's `reference_image` is rendered into the detailed report. parse-bench
+  keeps no image stack in its core dependencies, so it ships no default and
+  simply omits the inline crop; a harness that already depends on one can
+  register its renderer to get crops back. A thumbnailer that raises costs the
+  report its crop, never the rule its score.
+
 ### Changed
 - Dropped the `scikit-learn` dependency. Layout-detection average precision is
   now computed with a small numpy implementation that matches

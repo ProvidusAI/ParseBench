@@ -315,6 +315,7 @@ class LayoutDetectionModel(StrEnum):
     OPENAI_LAYOUT = "openai_layout"
     ANTHROPIC_LAYOUT = "anthropic_layout"
     GEMMA4_LAYOUT = "gemma4_layout"
+    HUNYUANOCR_LAYOUT = "hunyuanocr_layout"
     DATABRICKS_LAYOUT = "databricks_layout"
     INFINITY_PARSER2_LAYOUT = "infinity_parser2_layout"
     OI_PARSER_LAYOUT = "oi_parser_layout"
@@ -323,7 +324,10 @@ class LayoutDetectionModel(StrEnum):
     COHERE_PARSE_LAYOUT = "cohere_parse_layout"
     PYMUPDF4LLM_LAYOUT = "pymupdf4llm_layout"
     LITEPARSE_LAYOUT = "liteparse_layout"
+    HPD_PARSING_LAYOUT = "hpd_parsing_layout"
+    TELEOCR_LAYOUT = "teleocr_layout"
     FIRECRAWL_LAYOUT = "firecrawl_layout"
+    ANYFORMAT_LAYOUT = "anyformat_layout"
 
 
 LAYOUT_MODEL_INFO: dict[LayoutDetectionModel, dict[str, str]] = {
@@ -378,6 +382,10 @@ LAYOUT_MODEL_INFO: dict[LayoutDetectionModel, dict[str, str]] = {
     LayoutDetectionModel.OI_PARSER_LAYOUT: {
         "name": "oi-parser",
         "hf_url": "https://oi-parser.ai/",
+    },
+    LayoutDetectionModel.ANYFORMAT_LAYOUT: {
+        "name": "anyformat",
+        "hf_url": "https://anyformat.ai/",
     },
     LayoutDetectionModel.CHECKBOX_DETECTOR_YOLOV8: {
         "name": "YOLOv8 Checkbox Detector (mark-scope)",
@@ -447,6 +455,10 @@ LAYOUT_MODEL_INFO: dict[LayoutDetectionModel, dict[str, str]] = {
         "name": "Gemma 4 Layout (parse_with_layout)",
         "hf_url": "https://huggingface.co/google/gemma-4-E4B-it",
     },
+    LayoutDetectionModel.HUNYUANOCR_LAYOUT: {
+        "name": "HunyuanOCR 1.5 Layout",
+        "hf_url": "https://huggingface.co/tencent/HunyuanOCR",
+    },
     LayoutDetectionModel.DATABRICKS_LAYOUT: {
         "name": "Databricks ai_parse_document Layout",
         "hf_url": "https://docs.databricks.com/aws/en/sql/language-manual/functions/ai_parse_document",
@@ -462,6 +474,14 @@ LAYOUT_MODEL_INFO: dict[LayoutDetectionModel, dict[str, str]] = {
     LayoutDetectionModel.LITEPARSE_LAYOUT: {
         "name": "LiteParse Layout",
         "hf_url": "https://developers.llamaindex.ai/liteparse/guides/extraction/#layout-blocks",
+    },
+    LayoutDetectionModel.HPD_PARSING_LAYOUT: {
+        "name": "HPD-Parsing Layout",
+        "hf_url": "https://huggingface.co/PaddlePaddle/HPD-Parsing",
+    },
+    LayoutDetectionModel.TELEOCR_LAYOUT: {
+        "name": "TeleOCR Layout",
+        "hf_url": "https://huggingface.co/StarDoc-AI/TeleOCR",
     },
     LayoutDetectionModel.FIRECRAWL_LAYOUT: {
         "name": "Firecrawl Layout",

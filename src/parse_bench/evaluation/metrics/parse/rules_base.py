@@ -2,6 +2,7 @@
 
 import logging
 import re
+from collections.abc import Callable
 from html import unescape
 from pathlib import Path
 from typing import Any
@@ -513,6 +514,42 @@ def register_rule_class(rule_type: str, rule_class: type["ParseTestRule"]) -> No
 def registered_rule_classes() -> dict[str, type["ParseTestRule"]]:
     """Snapshot of extension rule classes keyed by rule ``type``."""
     return dict(_RULE_CLASS_REGISTRY)
+
+
+_REFERENCE_THUMBNAILER: Callable[[Path], str | None] | None = None
+
+
+def register_reference_thumbnailer(thumbnailer: Callable[[Path], str | None] | None) -> None:
+    """Register how a rule's ``reference_image`` is rendered into the report.
+
+    parse-bench carries no image stack in its core dependencies, so it ships no
+    default: without a registered thumbnailer a rule records the reference
+    filename and omits the inline render. A harness that already depends on an
+    image library (e.g. its own ``rules_image``) can register its renderer to
+    get page crops back in the detailed report.
+
+    ``thumbnailer`` takes the resolved path of an existing reference image and
+    returns a data URI, or ``None`` if it cannot render one. Pass ``None`` to
+    unregister.
+    """
+    if thumbnailer is not None and not callable(thumbnailer):
+        raise TypeError("thumbnailer must be callable or None")
+    global _REFERENCE_THUMBNAILER
+    _REFERENCE_THUMBNAILER = thumbnailer
+
+
+def reference_thumbnail(path: Path | None) -> str | None:
+    """Data URI for ``path`` via the registered thumbnailer, or ``None``.
+
+    Never raises: a thumbnailer that fails costs the report its crop, not the
+    rule its score.
+    """
+    if path is None or _REFERENCE_THUMBNAILER is None:
+        return None
+    try:
+        return _REFERENCE_THUMBNAILER(path)
+    except Exception:
+        return None
 
 
 def create_test_rule(rule_data: ParseRuleInput) -> "ParseTestRule":

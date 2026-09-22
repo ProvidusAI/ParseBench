@@ -30,9 +30,18 @@ def test_amazon_nova_with_layout_pipeline_enables_layout_mode() -> None:
         ("google_gemini_3_1_flash_lite_thinking_high_parse_with_layout_file", "google"),
         ("mistral_ocr_4_1", "mistral_ocr"),
         ("mistral_ocr_4_1_annotation", "mistral_ocr"),
+        ("hpd_parsing_vllm_parse", "hpd_parsing"),
         ("nemotron_omni_30b_vllm", "nemotron_omni"),
+        ("hunyuanocr_1_5", "hunyuanocr"),
+        ("ovisocr2_vllm", "ovisocr2"),
         ("qwen3_8_flash_next_parse_with_layout", "qwen3_8"),
         ("qwen3_8_flash_next_thinking_parse_with_layout", "qwen3_8"),
+        ("anyformat_standard", "anyformat"),
+        ("anyformat_agentic", "anyformat"),
+        ("anyformat_lite", "anyformat"),
+        ("anyformat_flash", "anyformat"),
+        ("wevisdoc_2b_vllm", "wevisdoc"),
+        ("wevisdoc_4b_vllm", "wevisdoc"),
     ],
 )
 def test_ported_pipelines_are_registered(pipeline_name: str, provider_name: str) -> None:
@@ -63,6 +72,29 @@ def test_qwen38_flash_next_pipelines_differ_only_by_thinking() -> None:
     assert off["server_url_env"] == "QWEN3_8_FLASH_NEXT_SERVER_URL"
 
 
+@pytest.mark.parametrize(
+    ("pipeline_name", "server_url_env", "served_model_name"),
+    [
+        ("wevisdoc_2b_vllm", "WEVISDOC_2B_SERVER_URL", "wevisdoc-2b"),
+        ("wevisdoc_4b_vllm", "WEVISDOC_4B_SERVER_URL", "wevisdoc-4b"),
+    ],
+)
+def test_wevisdoc_pipelines_use_public_endpoint_variables(
+    pipeline_name: str,
+    server_url_env: str,
+    served_model_name: str,
+) -> None:
+    spec = get_pipeline(pipeline_name)
+
+    assert spec.provider_name == "wevisdoc"
+    assert spec.product_type == ProductType.PARSE
+    assert spec.config == {
+        "server_url": "",
+        "server_url_env": server_url_env,
+        "served_model_name": served_model_name,
+    }
+
+
 def test_no_internal_only_pipeline_names_are_registered() -> None:
     # `llamaparse_agentic_granular_bboxes_staging` is a ParseBench-only pipeline,
     # so `_staging` is deliberately not in this list.
@@ -77,3 +109,15 @@ def test_self_hosted_pipelines_do_not_ship_internal_endpoints() -> None:
             value = config.get(key)
             if isinstance(value, str):
                 assert "modal.run" not in value, f"{name}.{key} points at an internal deployment"
+
+
+def test_hpd_parsing_uses_public_endpoint_configuration() -> None:
+    config = get_pipeline("hpd_parsing_vllm_parse").config
+    assert config["server_url_env"] == "HPD_PARSING_SERVER_URL"
+    assert "server_url" not in config
+
+
+def test_anyformat_pipelines_differ_only_by_tier() -> None:
+    configs = {tier: get_pipeline(f"anyformat_{tier}").config for tier in ("standard", "agentic", "lite", "flash")}
+    assert configs == {tier: {"mode": tier} for tier in configs}
+    assert get_pipeline("anyformat_standard").per_file_timeout == 900.0

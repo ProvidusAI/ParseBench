@@ -116,7 +116,8 @@ def _parse_ve_block(block: str) -> dict[str, Any]:
 
 
 def _extract_markdown_and_layout(
-    raw_text: str, image_size: tuple[int, int],
+    raw_text: str,
+    image_size: tuple[int, int],
 ) -> tuple[str, list[dict[str, Any]]]:
     """Extract clean markdown + layout items from VE-annotated model output."""
     img_w, img_h = image_size
@@ -144,11 +145,13 @@ def _extract_markdown_and_layout(
             if x2 <= x1 or y2 <= y1:
                 x2, y2 = x1 + x2, y1 + y2
             ve_type = str(ve.get("type", "")).strip().lower()
-            layout_items.append({
-                "bbox_px": [x1, y1, x2, y2],
-                "type": ve_type,
-                "md": ve.get("html", ""),
-            })
+            layout_items.append(
+                {
+                    "bbox_px": [x1, y1, x2, y2],
+                    "type": ve_type,
+                    "md": ve.get("html", ""),
+                }
+            )
 
         last_end = end
 
@@ -275,10 +278,7 @@ class CohereParseProvider(Provider):
     def __init__(self, provider_name: str, base_config: dict[str, Any] | None = None):
         super().__init__(provider_name, base_config)
 
-        api_key = (
-            self.base_config.get("api_key")
-            or os.getenv("COHERE_API_KEY")
-        )
+        api_key = self.base_config.get("api_key") or os.getenv("COHERE_API_KEY")
         if not api_key:
             raise ProviderConfigError(
                 "Cohere API key required. You can get COHERE_API_KEY from https://dashboard.cohere.com/api-keys"
@@ -378,13 +378,12 @@ class CohereParseProvider(Provider):
                     except ValueError:
                         wait = 0.0
                     if wait <= 0:
-                        wait = self._rate_limit_base_wait * (2.0 ** attempt)
+                        wait = self._rate_limit_base_wait * (2.0**attempt)
                     time.sleep(min(wait, self._rate_limit_max_wait))
                     continue
                 if resp.status_code == 429:
                     raise ProviderRateLimitError(
-                        f"Cohere parse rate limit (429) after {self._rate_limit_retries} retries: "
-                        f"{resp.text[:300]}"
+                        f"Cohere parse rate limit (429) after {self._rate_limit_retries} retries: {resp.text[:300]}"
                     )
                 raise ProviderTransientError(
                     f"Cohere parse server error ({resp.status_code}) after "
@@ -432,11 +431,13 @@ class CohereParseProvider(Provider):
             for page_index, image in enumerate(images):
                 text, usage = self._parse_page(client, image)
                 total_pages_billed += usage["pages_billed"]
-                pages.append({
-                    "page_index": page_index,
-                    "markdown": text,
-                    "image_size": [image.width, image.height],
-                })
+                pages.append(
+                    {
+                        "page_index": page_index,
+                        "markdown": text,
+                        "image_size": [image.width, image.height],
+                    }
+                )
 
         completed_at = datetime.now()
         pages_processed = len(pages)
@@ -477,11 +478,13 @@ class CohereParseProvider(Provider):
 
             pages.append(PageIR(page_index=page_index, markdown=markdown))
             page_markdowns.append(markdown)
-            pages_with_layout.append({
-                "page_index": page_index,
-                "image_size": img_size,
-                "_layout_items": layout_items,
-            })
+            pages_with_layout.append(
+                {
+                    "page_index": page_index,
+                    "image_size": img_size,
+                    "_layout_items": layout_items,
+                }
+            )
 
         pages.sort(key=lambda p: p.page_index)
         layout_pages = _build_layout_pages(pages_with_layout)
