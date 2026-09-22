@@ -170,7 +170,10 @@ def test_create_layout_adapter_for_result_picks_kdl_adapter_for_unregistered_kdl
     LlamaParse in the mix registration order (OIParser registers first) would
     still have picked the wrong adapter.
     """
-    from parse_bench.evaluation.layout_adapters.adapters import KdlFrontierNanoLayoutAdapter
+    from parse_bench.evaluation.layout_adapters.adapters import (
+        CohereParseLayoutAdapter,
+        KdlFrontierNanoLayoutAdapter,
+    )
 
     def _resolver(pipeline_name: str) -> PipelineSpec | None:
         if pipeline_name != "kdl_frontier_nano_patched":
@@ -185,6 +188,7 @@ def test_create_layout_adapter_for_result_picks_kdl_adapter_for_unregistered_kdl
     try:
         inference_result = _make_kdl_shaped_inference_result("kdl_frontier_nano_patched")
 
+        assert not CohereParseLayoutAdapter.matches(inference_result)
         adapter = create_layout_adapter_for_result(inference_result)
 
         assert isinstance(adapter, KdlFrontierNanoLayoutAdapter)
