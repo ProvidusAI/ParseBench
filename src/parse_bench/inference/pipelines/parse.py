@@ -2238,6 +2238,25 @@ def register_parse_pipelines(register_fn) -> None:  # type: ignore[no-untyped-de
             )
         )
 
+    # OpenAI GPT-6 Sol / Luna - Parse with Layout File - Reasoning None / Med
+    # A no-reasoning baseline and the model default, medium, pinned explicitly.
+    # The `med` token in the name is medium reasoning effort.
+    for _gpt6_suffix, _gpt6_model in (("sol", "gpt-6-sol"), ("luna", "gpt-6-luna")):
+        for _gpt6_name_effort, _gpt6_effort in (("none", "none"), ("med", "medium")):
+            register_fn(
+                PipelineSpec(
+                    pipeline_name=(f"openai_gpt_6_{_gpt6_suffix}_reasoning_{_gpt6_name_effort}_parse_with_layout_file"),
+                    provider_name="openai",
+                    product_type=ProductType.PARSE,
+                    config={
+                        "model": _gpt6_model,
+                        "max_tokens": 32768,
+                        "mode": "parse_with_layout_file",
+                        "reasoning_effort": _gpt6_effort,
+                    },
+                )
+            )
+
     # OpenAI GPT-5.4 Nano - Parse with Layout
     register_fn(
         PipelineSpec(

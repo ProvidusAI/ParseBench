@@ -68,7 +68,8 @@ USER_PROMPT = (
 
 # OpenAI standard short-context pricing: USD per million tokens (input, output)
 # Reasoning tokens billed at output rate.
-# Source: https://developers.openai.com/api/docs/pricing (verified 2026-07-09)
+# Source: https://developers.openai.com/api/docs/pricing (verified 2026-07-09;
+# the gpt-6 rows verified 2026-09-22 against https://developers.openai.com/api/docs/models)
 _OPENAI_PRICING_PER_M: dict[str, tuple[float, float]] = {
     # model-prefix: (input_per_M, output_per_M)
     "gpt-5-mini": (0.25, 2.00),
@@ -81,6 +82,8 @@ _OPENAI_PRICING_PER_M: dict[str, tuple[float, float]] = {
     "gpt-5.6-sol": (4.00, 20.00),
     "gpt-5.6-terra": (2.00, 12.00),
     "gpt-5.6-luna": (0.20, 1.20),
+    "gpt-6-sol": (2.00, 10.00),
+    "gpt-6-luna": (0.10, 0.50),
     "gpt-4o-mini": (0.15, 0.60),
     "gpt-4o": (2.50, 10.00),
     "gpt-4.1-mini": (0.40, 1.60),
@@ -91,6 +94,20 @@ _OPENAI_PRICING_PER_M: dict[str, tuple[float, float]] = {
     "gpt-4.5-preview": (75.00, 150.00),
     "o3-mini": (1.10, 4.40),
     "o4-mini": (1.10, 4.40),
+}
+
+# Cached-input rate (USD per 1M tokens) for the prompt_tokens_details.cached_tokens
+# share of the input. A model absent here bills cached tokens at its full input rate.
+_OPENAI_CACHED_INPUT_PER_M: dict[str, float] = {
+    "gpt-6-sol": 0.20,
+    "gpt-6-luna": 0.01,
+}
+
+# Cache-write rate (USD per 1M tokens) for prompt_tokens_details.cache_write_tokens,
+# a subset of the uncached input. A model absent here bills writes as uncached input.
+_OPENAI_CACHE_WRITE_PER_M: dict[str, float] = {
+    "gpt-6-sol": 2.50,
+    "gpt-6-luna": 0.125,
 }
 
 
@@ -167,6 +184,29 @@ class OpenAIProvider(Provider):
         matches = [(p, r) for p, r in _OPENAI_PRICING_PER_M.items() if self._model.startswith(p)]
         return max(matches, key=lambda x: len(x[0]))[1] if matches else (0.0, 0.0)
 
+    def _get_cached_input_rate(self, input_rate: float) -> float:
+        """Cached-input rate in USD per million tokens, ``input_rate`` when unlisted."""
+        matches = [(p, r) for p, r in _OPENAI_CACHED_INPUT_PER_M.items() if self._model.startswith(p)]
+        return max(matches, key=lambda x: len(x[0]))[1] if matches else input_rate
+
+    def _get_cache_write_rate(self, input_rate: float) -> float:
+        """Cache-write rate in USD per million tokens, ``input_rate`` when unlisted."""
+        matches = [(p, r) for p, r in _OPENAI_CACHE_WRITE_PER_M.items() if self._model.startswith(p)]
+        return max(matches, key=lambda x: len(x[0]))[1] if matches else input_rate
+
+    def _estimate_cost_usd(self, usage: dict[str, int]) -> float:
+        """Cost of summed per-page usage: fresh, cached and cache-write input plus output."""
+        input_rate, output_rate = self._get_pricing()
+        input_tokens = usage.get("input_tokens", 0)
+        cached = min(usage.get("cached_tokens", 0), input_tokens)
+        cache_write = min(usage.get("cache_write_tokens", 0), input_tokens - cached)
+        return (
+            (input_tokens - cached - cache_write) * input_rate
+            + cached * self._get_cached_input_rate(input_rate)
+            + cache_write * self._get_cache_write_rate(input_rate)
+            + (usage.get("output_tokens", 0) + usage.get("thinking_tokens", 0)) * output_rate
+        ) / 1_000_000
+
     def _raise_openai_error(self, e: Exception) -> NoReturn:
         """Classify an OpenAI SDK exception as transient (retried) or permanent.
 
@@ -194,19 +234,35 @@ class OpenAIProvider(Provider):
 
     @staticmethod
     def _extract_usage(response) -> dict[str, int]:  # type: ignore[no-untyped-def]
-        """Extract token counts from an OpenAI API response."""
+        """Extract token counts from an OpenAI API response.
+
+        ``completion_tokens`` already includes the reasoning tokens broken out in
+        ``completion_tokens_details``, so reasoning is split back out of it here and
+        the cost formula's ``(output + thinking)`` bills the completion exactly once.
+        """
         usage = getattr(response, "usage", None)
         if usage is None:
-            return {"input_tokens": 0, "output_tokens": 0, "thinking_tokens": 0, "total_tokens": 0}
+            return {
+                "input_tokens": 0,
+                "cached_tokens": 0,
+                "cache_write_tokens": 0,
+                "output_tokens": 0,
+                "thinking_tokens": 0,
+                "total_tokens": 0,
+            }
         input_tok = getattr(usage, "prompt_tokens", 0) or 0
-        output_tok = getattr(usage, "completion_tokens", 0) or 0
+        completion_tok = getattr(usage, "completion_tokens", 0) or 0
         total_tok = getattr(usage, "total_tokens", 0) or 0
-        # Reasoning tokens (o-series models)
         details = getattr(usage, "completion_tokens_details", None)
-        thinking_tok = getattr(details, "reasoning_tokens", 0) or 0 if details else 0
+        thinking_tok = (getattr(details, "reasoning_tokens", 0) or 0) if details else 0
+        prompt_details = getattr(usage, "prompt_tokens_details", None)
+        cached_tok = (getattr(prompt_details, "cached_tokens", 0) or 0) if prompt_details else 0
+        cache_write_tok = (getattr(prompt_details, "cache_write_tokens", 0) or 0) if prompt_details else 0
         return {
             "input_tokens": input_tok,
-            "output_tokens": output_tok,
+            "cached_tokens": cached_tok,
+            "cache_write_tokens": cache_write_tok,
+            "output_tokens": max(0, completion_tok - thinking_tok),
             "thinking_tokens": thinking_tok,
             "total_tokens": total_tok,
         }
@@ -625,11 +681,19 @@ class OpenAIProvider(Provider):
             total_input = sum(u["input_tokens"] for u in page_usages)
             total_output = sum(u["output_tokens"] for u in page_usages)
             total_thinking = sum(u["thinking_tokens"] for u in page_usages)
+            total_cached = sum(u.get("cached_tokens", 0) for u in page_usages)
+            total_cache_write = sum(u.get("cache_write_tokens", 0) for u in page_usages)
             total_all = sum(u["total_tokens"] for u in page_usages)
 
-            # Compute cost
-            input_rate, output_rate = self._get_pricing()
-            cost = (total_input * input_rate + (total_output + total_thinking) * output_rate) / 1_000_000
+            cost = self._estimate_cost_usd(
+                {
+                    "input_tokens": total_input,
+                    "cached_tokens": total_cached,
+                    "cache_write_tokens": total_cache_write,
+                    "output_tokens": total_output,
+                    "thinking_tokens": total_thinking,
+                }
+            )
 
             config_info: dict[str, Any] = {
                 "dpi": self._dpi,
@@ -647,6 +711,8 @@ class OpenAIProvider(Provider):
                 "bbox_scale": self._bbox_scale,
                 "config": config_info,
                 "input_tokens": total_input,
+                "cached_input_tokens": total_cached,
+                "cache_write_input_tokens": total_cache_write,
                 "output_tokens": total_output,
                 "thinking_tokens": total_thinking,
                 "total_tokens": total_all,
