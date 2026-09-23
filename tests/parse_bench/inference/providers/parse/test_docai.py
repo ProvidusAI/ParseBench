@@ -94,7 +94,7 @@ def test_knowledge_base_is_found_by_name_before_creating(monkeypatch):
     def fake_req(method, path, **kw):
         calls.append((method, path))
         if method == "GET":
-            return _Resp(200, {"knowledge_bases": [{"id": "kb-1", "name": "ParseBench"}]})
+            return _Resp(200, {"knowledge_bases": [{"id": "kb-1", "name": "parsebench"}]})  # any case
         raise AssertionError("must not create")
 
     monkeypatch.setattr(p, "_req", fake_req)

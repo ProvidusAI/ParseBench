@@ -13,7 +13,7 @@ api_key : str
 base_url : str
     API origin. Falls back to ``DOCAI_BASE_URL``, else ``https://api.providus.ai``.
 knowledge_base : str
-    Knowledge base name. Default ``ParseBench``.
+    Knowledge base name, matched case-insensitively. Default ``ParseBench``.
 parse_options : dict
     Sent with the upload. Default ``{"redact": false}``.
 poll_seconds, request_timeout, job_timeout : float
@@ -282,7 +282,7 @@ class DocAIProvider(Provider):
                 return self._kb_id
             listing = self._req("GET", "/v1/knowledge-bases").json()
             for kb in listing.get("knowledge_bases") or []:
-                if kb.get("name") == self._kb_name:
+                if str(kb.get("name") or "").lower() == self._kb_name.lower():
                     self._kb_id = str(kb["id"])
                     return self._kb_id
             created = self._req("POST", "/v1/knowledge-bases", json={"name": self._kb_name}).json()
