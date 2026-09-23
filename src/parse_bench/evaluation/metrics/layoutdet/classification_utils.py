@@ -6,12 +6,122 @@ and computing per-class precision/recall/F1 metrics.
 
 from collections import defaultdict
 from collections.abc import Callable
+from typing import Any
 
 import numpy as np
 
-from parse_bench.evaluation.metrics.layoutdet.iou import compute_iou_matrix
+from parse_bench.evaluation.metrics.layoutdet.iou import (
+    compute_iou_matrix,
+)
+from parse_bench.evaluation.metrics.layoutdet.overlap import compute_layout_iou
 
 OverlapFn = Callable[[dict, dict], float]
+
+
+def _coerce_page_key(value: Any) -> int | None:
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _entry_dimension(value: Any) -> float | None:
+    try:
+        dimension = float(value)
+    except (TypeError, ValueError):
+        return None
+    return dimension if dimension > 0 else None
+
+
+def _entry_page_dimensions(
+    entry: dict[str, Any],
+    page_dimensions_by_number: dict[int, tuple[float, float]],
+) -> tuple[float, float]:
+    width = _entry_dimension(entry.get("page_width"))
+    height = _entry_dimension(entry.get("page_height"))
+    if width is not None and height is not None:
+        return width, height
+
+    page_key = _coerce_page_key(entry.get("page"))
+    if page_key is not None:
+        return page_dimensions_by_number.get(page_key, (1.0, 1.0))
+    return (1.0, 1.0)
+
+
+def _matching_page_dimensions(
+    gt_entry: dict[str, Any],
+    pred_entry: dict[str, Any],
+    page_dimensions_by_number: dict[int, tuple[float, float]],
+) -> tuple[float, float]:
+    gt_width, gt_height = _entry_page_dimensions(gt_entry, page_dimensions_by_number)
+    if (gt_width, gt_height) != (1.0, 1.0):
+        return gt_width, gt_height
+    return _entry_page_dimensions(pred_entry, page_dimensions_by_number)
+
+
+def _bbox_cache_key(bbox: Any) -> tuple[float, float, float, float]:
+    values = [float(value) for value in bbox]
+    if len(values) != 4:
+        raise ValueError(f"Expected bbox with 4 values, got {len(values)}")
+    return values[0], values[1], values[2], values[3]
+
+
+def rotated_overlap_fn(
+    page_dimensions_by_number: dict[int, tuple[float, float]],
+) -> Callable[[dict[str, Any], dict[str, Any]], float]:
+    """Build cached rotated IoU matching with each page's physical aspect ratio."""
+
+    def entry_key(entry: dict[str, Any]) -> tuple:
+        angle = entry.get("r")
+        return (
+            _bbox_cache_key(entry["bbox"]),
+            None if angle is None else float(angle),
+            _entry_page_dimensions(entry, page_dimensions_by_number),
+        )
+
+    class RotatedOverlap:
+        def __init__(self) -> None:
+            self._matrix_cache: dict[tuple, np.ndarray] = {}
+
+        def __call__(self, pred: dict[str, Any], gt: dict[str, Any]) -> float:
+            return float(self.matrix([pred], [gt])[0, 0])
+
+        def matrix(self, predictions: list[dict[str, Any]], ground_truth: list[dict[str, Any]]) -> np.ndarray:
+            cache_key = (
+                tuple(entry_key(pred) for pred in predictions),
+                tuple(entry_key(gt) for gt in ground_truth),
+            )
+            cached = self._matrix_cache.get(cache_key)
+            if cached is not None:
+                return cached
+
+            pred_boxes = np.array([pred["bbox"] for pred in predictions], dtype=float)
+            gt_boxes = np.array([gt["bbox"] for gt in ground_truth], dtype=float)
+            pred_angles = [pred.get("r") for pred in predictions]
+            gt_angles = [gt.get("r") for gt in ground_truth]
+
+            reference_pred = predictions[0] if predictions else {}
+            page_widths: list[float] = []
+            page_heights: list[float] = []
+            for gt in ground_truth:
+                page_width, page_height = _matching_page_dimensions(gt, reference_pred, page_dimensions_by_number)
+                page_widths.append(page_width)
+                page_heights.append(page_height)
+
+            matrix = compute_layout_iou(
+                gt_boxes,
+                pred_boxes,
+                gt_angles,
+                pred_angles,
+                page_widths=page_widths,
+                page_heights=page_heights,
+            ).T
+            self._matrix_cache[cache_key] = matrix
+            return matrix
+
+    return RotatedOverlap()
 
 
 def average_precision_score(y_true: np.ndarray, y_score: np.ndarray) -> float:

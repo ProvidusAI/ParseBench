@@ -485,11 +485,11 @@ def test_hunyuanocr_hy_meta_quad_poly_reaches_canonical_evaluator_path() -> None
     ]
     assert [prediction.page for prediction in layout.predictions] == [1, 1, 1, 2, 2]
     assert [prediction.bbox for prediction in layout.predictions] == [
-        pytest.approx([50.0, 20.0, 950.0, 90.0]),
-        pytest.approx([50.0, 120.0, 950.0, 280.0]),
-        pytest.approx([50.0, 320.0, 950.0, 700.0]),
-        pytest.approx([80.0, 40.0, 920.0, 160.0]),
-        pytest.approx([80.0, 220.0, 920.0, 300.0]),
+        pytest.approx([60.0, 36.0, 1140.0, 162.0]),
+        pytest.approx([60.0, 216.0, 1140.0, 504.0]),
+        pytest.approx([60.0, 576.0, 1140.0, 1260.0]),
+        pytest.approx([144.0, 36.0, 1656.0, 144.0]),
+        pytest.approx([144.0, 198.0, 1656.0, 270.0]),
     ]
 
     canonical = project_to_canonical_predictions(layout)
@@ -587,7 +587,7 @@ def test_hunyuanocr_official_layout_aliases_reach_markdown_and_layout(
     assert layout.predictions[0].label == canonical_label
 
 
-def test_hunyuanocr_mixed_page_sizes_project_canonical_labels_in_common_frame() -> None:
+def test_hunyuanocr_mixed_page_sizes_project_canonical_labels_in_page_frames() -> None:
     provider = HunyuanOcrProvider("hunyuanocr", {"server_url": "https://example.invalid"})
     page_results = [
         {
@@ -641,7 +641,7 @@ def test_hunyuanocr_mixed_page_sizes_project_canonical_labels_in_common_frame() 
     assert isinstance(adapter, HunyuanOcrLayoutAdapter)
     layout = adapter.to_layout_output(normalized)
     assert layout.model is LayoutDetectionModel.HUNYUANOCR_LAYOUT
-    assert (layout.image_width, layout.image_height) == (1000, 1000)
+    assert (layout.image_width, layout.image_height) == (1000, 2000)
     assert [prediction.label for prediction in layout.predictions] == [
         "Text",
         "Table",
@@ -649,10 +649,10 @@ def test_hunyuanocr_mixed_page_sizes_project_canonical_labels_in_common_frame() 
         "Document Index",
     ]
     assert [prediction.bbox for prediction in layout.predictions] == [
-        pytest.approx([100.0, 100.0, 400.0, 300.0]),
-        pytest.approx([200.0, 500.0, 900.0, 900.0]),
-        pytest.approx([250.0, 100.0, 750.0, 700.0]),
-        pytest.approx([100.0, 750.0, 900.0, 900.0]),
+        pytest.approx([100.0, 200.0, 400.0, 600.0]),
+        pytest.approx([200.0, 1000.0, 900.0, 1800.0]),
+        pytest.approx([500.0, 100.0, 1500.0, 700.0]),
+        pytest.approx([200.0, 750.0, 1800.0, 900.0]),
     ]
 
     canonical = project_to_canonical_predictions(layout)
@@ -692,11 +692,11 @@ def test_hunyuanocr_mixed_page_sizes_project_canonical_labels_in_common_frame() 
     assert evaluator_predictions == projected
 
     page_two_layout = adapter.to_layout_output(normalized, page_filter=2)
-    assert (page_two_layout.image_width, page_two_layout.image_height) == (1000, 1000)
+    assert (page_two_layout.image_width, page_two_layout.image_height) == (1000, 2000)
     assert [prediction.page for prediction in page_two_layout.predictions] == [2, 2]
     assert [prediction.bbox for prediction in page_two_layout.predictions] == [
-        pytest.approx([250.0, 100.0, 750.0, 700.0]),
-        pytest.approx([100.0, 750.0, 900.0, 900.0]),
+        pytest.approx([500.0, 100.0, 1500.0, 700.0]),
+        pytest.approx([200.0, 750.0, 1800.0, 900.0]),
     ]
     page_two_predictions = evaluator._extract_predictions(
         normalized,
@@ -909,6 +909,6 @@ def test_hunyuanocr_normalizes_layout_and_selects_its_adapter() -> None:
     layout = adapter.to_layout_output(normalized)
     assert layout.model is LayoutDetectionModel.HUNYUANOCR_LAYOUT
     assert [prediction.bbox for prediction in layout.predictions] == [
-        pytest.approx([100.0, 200.0, 500.0, 300.0]),
-        pytest.approx([100.0, 400.0, 900.0, 800.0]),
+        pytest.approx([120.0, 320.0, 600.0, 480.0]),
+        pytest.approx([120.0, 640.0, 1080.0, 1280.0]),
     ]

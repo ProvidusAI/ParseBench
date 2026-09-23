@@ -16,6 +16,7 @@ from parse_bench.geometry.rotated_bbox import xywh_r_to_polygon
 __all__ = [
     "coco_to_xyxy",
     "compute_iou",
+    "compute_ioa_matrix",
     "compute_iou_matrix",
     "compute_rotated_ioa_matrix",
     "compute_rotated_iou",
@@ -364,7 +365,7 @@ def compute_rotated_ioa_matrix(
     if not any(angle is not None for angle in source_angle_values) and not any(
         angle is not None for angle in target_angle_values
     ):
-        return _compute_axis_aligned_ioa_matrix(source_boxes, target_boxes)
+        return compute_ioa_matrix(source_boxes, target_boxes)
 
     matrix = np.zeros((source_count, target_count), dtype=float)
     for source_index in range(source_count):
@@ -403,19 +404,37 @@ def _polygon_overlap_area(
     return polygon_area(convex_polygon_intersection(polygon1, polygon2))
 
 
-def _compute_axis_aligned_ioa_matrix(source_boxes: np.ndarray, target_boxes: np.ndarray) -> np.ndarray:
-    source_boxes = np.asarray(source_boxes, dtype=float)
-    target_boxes = np.asarray(target_boxes, dtype=float)
-    source_areas = (source_boxes[:, 2] - source_boxes[:, 0]) * (source_boxes[:, 3] - source_boxes[:, 1])
-    lt = np.maximum(source_boxes[:, None, :2], target_boxes[None, :, :2])
-    rb = np.minimum(source_boxes[:, None, 2:], target_boxes[None, :, 2:])
-    wh = np.clip(rb - lt, 0, None)
-    intersection = wh[:, :, 0] * wh[:, :, 1]
-    return intersection / np.clip(source_areas[:, None], 1e-10, None)  # type: ignore[no-any-return]
-
-
 def _dimension_for_index(values: Sequence[float] | None, index: int, default: float) -> float:
     if values is None or index >= len(values):
         return default
     value = float(values[index])
     return value if value > 0 else default
+
+
+def compute_ioa_matrix(
+    gt_boxes: np.ndarray,  # shape (N, 4) xyxy
+    pred_boxes: np.ndarray,  # shape (M, 4) xyxy
+) -> np.ndarray:  # shape (N, M)
+    """Compute pairwise IoA matrix: IoA[i, j] = intersection(gt_i, pred_j) / area(gt_i).
+
+    :param gt_boxes: Array of shape (N, 4) with GT boxes in xyxy format
+    :param pred_boxes: Array of shape (M, 4) with predicted boxes in xyxy format
+    :return: IoA matrix of shape (N, M)
+    """
+    if len(gt_boxes) == 0 or len(pred_boxes) == 0:
+        return np.zeros((len(gt_boxes), len(pred_boxes)))
+
+    gt_boxes = np.asarray(gt_boxes, dtype=float)
+    pred_boxes = np.asarray(pred_boxes, dtype=float)
+
+    # Compute GT areas
+    gt_areas = (gt_boxes[:, 2] - gt_boxes[:, 0]) * (gt_boxes[:, 3] - gt_boxes[:, 1])
+
+    # Compute intersection
+    lt = np.maximum(gt_boxes[:, None, :2], pred_boxes[None, :, :2])
+    rb = np.minimum(gt_boxes[:, None, 2:], pred_boxes[None, :, 2:])
+    wh = np.clip(rb - lt, 0, None)
+    intersection = wh[:, :, 0] * wh[:, :, 1]
+
+    # IoA = intersection / gt_area
+    return intersection / np.clip(gt_areas[:, None], 1e-10, None)  # type: ignore[no-any-return]

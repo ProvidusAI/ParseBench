@@ -7,7 +7,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any, cast
 
-from parse_bench.evaluation.layout_adapters.base import LayoutAdapter
+from parse_bench.evaluation.layout_adapters.base import LayoutAdapter, filter_layout_output
 from parse_bench.evaluation.layout_adapters.registry import register_layout_adapter
 from parse_bench.evaluation.metrics.attribution.core import (
     PredBlock,
@@ -96,13 +96,7 @@ class NormalizedLayoutOutputAdapter(LayoutAdapter):
         if not isinstance(inference_result.output, LayoutOutput):
             raise ValueError("Inference output is not LayoutOutput and no provider adapter matched.")
 
-        if page_filter is None:
-            return inference_result.output
-
-        predictions = [
-            prediction for prediction in inference_result.output.predictions if prediction.page == page_filter
-        ]
-        return inference_result.output.model_copy(update={"predictions": predictions})
+        return filter_layout_output(inference_result.output, page_filter)
 
 
 @register_layout_adapter(
@@ -172,23 +166,14 @@ class LlamaParseLayoutAdapter(LayoutAdapter):
                 example_id=inference_result.request.example_id,
                 pipeline_name=inference_result.pipeline_name,
             )
-            if page_filter is None:
-                return layout_output
-
-            predictions = [prediction for prediction in layout_output.predictions if prediction.page == page_filter]
-            return layout_output.model_copy(update={"predictions": predictions})
+            return filter_layout_output(layout_output, page_filter)
 
         self._pages_payload = None
         if (
             isinstance(inference_result.output, LayoutOutput)
             and inference_result.output.model == LayoutDetectionModel.LLAMAPARSE
         ):
-            if page_filter is None:
-                return inference_result.output
-            predictions = [
-                prediction for prediction in inference_result.output.predictions if prediction.page == page_filter
-            ]
-            return inference_result.output.model_copy(update={"predictions": predictions})
+            return filter_layout_output(inference_result.output, page_filter)
 
         raise ValueError("LlamaParse adapter requires ParseOutput.layout_pages or raw_output.pages")
 
@@ -225,8 +210,8 @@ class LlamaParseLayoutAdapter(LayoutAdapter):
             )
 
         page_md = raw_page.get("md", "") or raw_page.get("text", "") or ""
-        page_width = float(raw_page.get("width") or layout_output.image_width or 1)
-        page_height = float(raw_page.get("height") or layout_output.image_height or 1)
+        page_width = float(raw_page.get("width", layout_output.image_width))
+        page_height = float(raw_page.get("height", layout_output.image_height))
         return parse_pred_blocks(
             items,
             page_md,
@@ -958,10 +943,7 @@ class DotsOcrLayoutAdapter(LayoutAdapter):
     ) -> LayoutOutput:
         # Handle synthetic LayoutOutput results (e.g. from cross-eval runner)
         if isinstance(inference_result.output, LayoutOutput):
-            if page_filter is None:
-                return inference_result.output
-            filtered = [p for p in inference_result.output.predictions if p.page == page_filter]
-            return inference_result.output.model_copy(update={"predictions": filtered})
+            return filter_layout_output(inference_result.output, page_filter)
 
         if not isinstance(inference_result.output, ParseOutput):
             raise ValueError("DotsOcrLayoutAdapter requires ParseOutput or LayoutOutput")
@@ -999,7 +981,8 @@ class DotsOcrLayoutAdapter(LayoutAdapter):
                     predictions.append(
                         LayoutPrediction(
                             bbox=[x1, y1, x2, y2],
-                            score=float(seg.confidence or 1.0),
+                            r=seg.r,
+                            score=float(1.0 if seg.confidence is None else seg.confidence),
                             label=label,
                             page=page_number,
                             content=content,
@@ -1017,6 +1000,7 @@ class DotsOcrLayoutAdapter(LayoutAdapter):
             image_width=max(output_width, 1),
             image_height=max(output_height, 1),
             predictions=predictions,
+            layout_pages=[page.model_copy(update={"items": []}) for page in layout_pages],
         )
 
 
@@ -1052,10 +1036,7 @@ class DoclingParseLayoutAdapter(LayoutAdapter):
         page_filter: int | None = None,
     ) -> LayoutOutput:
         if isinstance(inference_result.output, LayoutOutput):
-            if page_filter is None:
-                return inference_result.output
-            filtered = [p for p in inference_result.output.predictions if p.page == page_filter]
-            return inference_result.output.model_copy(update={"predictions": filtered})
+            return filter_layout_output(inference_result.output, page_filter)
 
         if not isinstance(inference_result.output, ParseOutput):
             raise ValueError("DoclingParseLayoutAdapter requires ParseOutput or LayoutOutput")
@@ -1095,7 +1076,8 @@ class DoclingParseLayoutAdapter(LayoutAdapter):
                     predictions.append(
                         LayoutPrediction(
                             bbox=[x1, y1, x2, y2],
-                            score=float(seg.confidence or 1.0),
+                            r=seg.r,
+                            score=float(1.0 if seg.confidence is None else seg.confidence),
                             label=label,
                             page=page_number,
                             content=_build_docling_parse_content(item.type, item.value),
@@ -1115,6 +1097,7 @@ class DoclingParseLayoutAdapter(LayoutAdapter):
             image_width=max(output_width, 1),
             image_height=max(output_height, 1),
             predictions=predictions,
+            layout_pages=[page.model_copy(update={"items": []}) for page in layout_pages],
             markdown="\n\n".join(markdown_parts),
         )
 
@@ -1158,6 +1141,9 @@ class DoclingParseLayoutAdapter(LayoutAdapter):
                 blocks.append(
                     PredBlock(
                         bbox_xyxy=[seg.x, seg.y, seg.x + seg.w, seg.y + seg.h],
+                        r=seg.r,
+                        page_width=page.width if page.width is not None else layout_output.image_width,
+                        page_height=page.height if page.height is not None else layout_output.image_height,
                         block_type=block_type,
                         label=label,
                         text=raw_text,
@@ -1196,72 +1182,8 @@ class Qwen3VLLayoutAdapter(LayoutAdapter):
         *,
         page_filter: int | None = None,
     ) -> LayoutOutput:
-        if isinstance(inference_result.output, LayoutOutput):
-            if page_filter is None:
-                return inference_result.output
-            filtered = [p for p in inference_result.output.predictions if p.page == page_filter]
-            return inference_result.output.model_copy(update={"predictions": filtered})
-
-        if not isinstance(inference_result.output, ParseOutput):
-            raise ValueError("Qwen3VLLayoutAdapter requires ParseOutput or LayoutOutput")
-
-        layout_pages = inference_result.output.layout_pages
-        if not layout_pages:
-            raise ValueError("Qwen3VLLayoutAdapter requires non-empty layout_pages")
-
-        first_page = layout_pages[0]
-        output_width = int(first_page.width or 1)
-        output_height = int(first_page.height or 1)
-
-        predictions: list[LayoutPrediction] = []
-
-        for lp in layout_pages:
-            page_number = lp.page_number
-            if page_filter is not None and page_number != page_filter:
-                continue
-
-            page_w = float(lp.width or output_width)
-            page_h = float(lp.height or output_height)
-
-            for item in lp.items:
-                for seg in item.layout_segments:
-                    str_label = seg.label or item.type or "Text"
-
-                    # Convert string label to integer label for Qwen3VL evaluator
-                    # Map canonical-style "Page-header" → "page_header" for lookup
-                    lookup_key = str_label.lower().replace("-", "_")
-                    qwen_enum = QWEN3VL_STR_TO_LABEL.get(lookup_key)
-                    int_label = str(int(qwen_enum)) if qwen_enum is not None else str_label
-
-                    # Convert normalized [0,1] xywh -> pixel xyxy
-                    x1 = seg.x * page_w
-                    y1 = seg.y * page_h
-                    x2 = (seg.x + seg.w) * page_w
-                    y2 = (seg.y + seg.h) * page_h
-
-                    content = _build_dots_ocr_content(str_label, item.value)
-
-                    predictions.append(
-                        LayoutPrediction(
-                            bbox=[x1, y1, x2, y2],
-                            score=float(seg.confidence or 1.0),
-                            label=int_label,
-                            page=page_number,
-                            content=content,
-                            provider_metadata={
-                                "order_index": len(predictions),
-                            },
-                        )
-                    )
-
-        return LayoutOutput(
-            task_type="layout_detection",
-            example_id=inference_result.request.example_id,
-            pipeline_name=inference_result.pipeline_name,
-            model=LayoutDetectionModel.QWEN3_VL_8B,
-            image_width=max(output_width, 1),
-            image_height=max(output_height, 1),
-            predictions=predictions,
+        return _parse_with_layout_to_layout_output(
+            inference_result, model=LayoutDetectionModel.QWEN3_VL_8B, page_filter=page_filter
         )
 
 
@@ -1274,10 +1196,7 @@ def _parse_with_layout_to_layout_output(
     """Shared conversion for LLM parse_with_layout adapters (Google/OpenAI/Anthropic)."""
     # Handle LayoutOutput (e.g. from multi-task re-evaluation)
     if isinstance(inference_result.output, LayoutOutput):
-        if page_filter is None:
-            return inference_result.output
-        filtered = [p for p in inference_result.output.predictions if p.page == page_filter]
-        return inference_result.output.model_copy(update={"predictions": filtered})
+        return filter_layout_output(inference_result.output, page_filter)
 
     if not isinstance(inference_result.output, ParseOutput):
         out_type = type(inference_result.output).__name__
@@ -1320,7 +1239,8 @@ def _parse_with_layout_to_layout_output(
                 predictions.append(
                     LayoutPrediction(
                         bbox=[x1, y1, x2, y2],
-                        score=float(seg.confidence or 1.0),
+                        r=seg.r,
+                        score=float(1.0 if seg.confidence is None else seg.confidence),
                         label=int_label,
                         page=page_number,
                         content=content,
@@ -1338,6 +1258,7 @@ def _parse_with_layout_to_layout_output(
         image_width=max(output_width, 1),
         image_height=max(output_height, 1),
         predictions=predictions,
+        layout_pages=[page.model_copy(update={"items": []}) for page in layout_pages],
     )
 
 
@@ -1415,14 +1336,7 @@ class Gemma4LayoutAdapter(LayoutAdapter):
 
 @register_layout_adapter("hunyuanocr", priority=90)
 class HunyuanOcrLayoutAdapter(LayoutAdapter):
-    """Project HunyuanOCR's normalized boxes and canonical labels.
-
-    ``LayoutOutput`` has one global coordinate frame. HunyuanOCR already emits
-    every page on a normalized 0-1000 grid, so all pages are projected into the
-    same 1000x1000 frame instead of mixing their source pixel dimensions.
-    """
-
-    _SCALE = 1000
+    """Project normalized segments into each page's physical coordinate frame."""
 
     @classmethod
     def matches(cls, inference_result: InferenceResult) -> bool:
@@ -1445,21 +1359,21 @@ class HunyuanOcrLayoutAdapter(LayoutAdapter):
         page_filter: int | None = None,
     ) -> LayoutOutput:
         if isinstance(inference_result.output, LayoutOutput):
-            if page_filter is None:
-                return inference_result.output
-            predictions = [
-                prediction for prediction in inference_result.output.predictions if prediction.page == page_filter
-            ]
-            return inference_result.output.model_copy(update={"predictions": predictions})
+            return filter_layout_output(inference_result.output, page_filter)
         if not isinstance(inference_result.output, ParseOutput):
             raise ValueError("HunyuanOcrLayoutAdapter requires ParseOutput or LayoutOutput")
         if not inference_result.output.layout_pages:
             raise ValueError("HunyuanOcrLayoutAdapter requires non-empty layout_pages")
 
+        layout_pages = inference_result.output.layout_pages
+        output_width = layout_pages[0].width or 1
+        output_height = layout_pages[0].height or 1
         predictions: list[LayoutPrediction] = []
         for page in inference_result.output.layout_pages:
             if page_filter is not None and page.page_number != page_filter:
                 continue
+            page_width = page.width or output_width
+            page_height = page.height or output_height
             for item in page.items:
                 segments = item.layout_segments or ([item.bbox] if item.bbox is not None else [])
                 for segment in segments:
@@ -1469,12 +1383,13 @@ class HunyuanOcrLayoutAdapter(LayoutAdapter):
                     predictions.append(
                         LayoutPrediction(
                             bbox=[
-                                segment.x * self._SCALE,
-                                segment.y * self._SCALE,
-                                (segment.x + segment.w) * self._SCALE,
-                                (segment.y + segment.h) * self._SCALE,
+                                segment.x * page_width,
+                                segment.y * page_height,
+                                (segment.x + segment.w) * page_width,
+                                (segment.y + segment.h) * page_height,
                             ],
-                            score=float(segment.confidence or 1.0),
+                            r=segment.r,
+                            score=segment.confidence if segment.confidence is not None else 1.0,
                             label=label,
                             page=page.page_number,
                             content=_build_dots_ocr_content(label, item.value),
@@ -1487,9 +1402,10 @@ class HunyuanOcrLayoutAdapter(LayoutAdapter):
             example_id=inference_result.request.example_id,
             pipeline_name=inference_result.pipeline_name,
             model=LayoutDetectionModel.HUNYUANOCR_LAYOUT,
-            image_width=self._SCALE,
-            image_height=self._SCALE,
+            image_width=int(output_width),
+            image_height=int(output_height),
             predictions=predictions,
+            layout_pages=[page.model_copy(update={"items": []}) for page in layout_pages],
             markdown=inference_result.output.markdown,
         )
 
@@ -1637,10 +1553,7 @@ class ReductoLayoutAdapter(LayoutAdapter):
     ) -> LayoutOutput:
         # Handle synthetic LayoutOutput results (e.g. from cross-eval runner)
         if isinstance(inference_result.output, LayoutOutput):
-            if page_filter is None:
-                return inference_result.output
-            filtered = [p for p in inference_result.output.predictions if p.page == page_filter]
-            return inference_result.output.model_copy(update={"predictions": filtered})
+            return filter_layout_output(inference_result.output, page_filter)
 
         if not isinstance(inference_result.output, ParseOutput):
             raise ValueError("ReductoLayoutAdapter requires ParseOutput or LayoutOutput")
@@ -1678,7 +1591,8 @@ class ReductoLayoutAdapter(LayoutAdapter):
                     predictions.append(
                         LayoutPrediction(
                             bbox=[x1, y1, x2, y2],
-                            score=float(seg.confidence or 1.0),
+                            r=seg.r,
+                            score=float(1.0 if seg.confidence is None else seg.confidence),
                             label=label,
                             page=page_number,
                             content=content,
@@ -1696,6 +1610,7 @@ class ReductoLayoutAdapter(LayoutAdapter):
             image_width=max(output_width, 1),
             image_height=max(output_height, 1),
             predictions=predictions,
+            layout_pages=[page.model_copy(update={"items": []}) for page in layout_pages],
         )
 
 
@@ -1726,10 +1641,7 @@ class OIParserLayoutAdapter(LayoutAdapter):
     ) -> LayoutOutput:
         # Handle synthetic LayoutOutput results (e.g. from cross-eval re-runs).
         if isinstance(inference_result.output, LayoutOutput):
-            if page_filter is None:
-                return inference_result.output
-            filtered = [p for p in inference_result.output.predictions if p.page == page_filter]
-            return inference_result.output.model_copy(update={"predictions": filtered})
+            return filter_layout_output(inference_result.output, page_filter)
 
         if not isinstance(inference_result.output, ParseOutput):
             raise ValueError("OIParserLayoutAdapter requires ParseOutput or LayoutOutput")
@@ -1778,7 +1690,8 @@ class OIParserLayoutAdapter(LayoutAdapter):
                     predictions.append(
                         LayoutPrediction(
                             bbox=[x1, y1, x2, y2],
-                            score=float(seg.confidence or 1.0),
+                            r=seg.r,
+                            score=float(1.0 if seg.confidence is None else seg.confidence),
                             label=label,
                             page=page_number,
                             content=content,
@@ -1796,6 +1709,7 @@ class OIParserLayoutAdapter(LayoutAdapter):
             image_width=max(output_width, 1),
             image_height=max(output_height, 1),
             predictions=predictions,
+            layout_pages=[page.model_copy(update={"items": []}) for page in layout_pages],
         )
 
 
@@ -1909,10 +1823,7 @@ class DatabricksAiParseLayoutAdapter(LayoutAdapter):
         page_filter: int | None = None,
     ) -> LayoutOutput:
         if isinstance(inference_result.output, LayoutOutput):
-            if page_filter is None:
-                return inference_result.output
-            filtered = [p for p in inference_result.output.predictions if p.page == page_filter]
-            return inference_result.output.model_copy(update={"predictions": filtered})
+            return filter_layout_output(inference_result.output, page_filter)
 
         if not isinstance(inference_result.output, ParseOutput):
             raise ValueError("DatabricksAiParseLayoutAdapter requires ParseOutput or LayoutOutput")
@@ -1948,6 +1859,7 @@ class DatabricksAiParseLayoutAdapter(LayoutAdapter):
                     predictions.append(
                         LayoutPrediction(
                             bbox=[x1, y1, x2, y2],
+                            r=seg.r,
                             score=float(seg.confidence) if seg.confidence is not None else 1.0,
                             label=label,
                             page=page_number,
@@ -1966,6 +1878,7 @@ class DatabricksAiParseLayoutAdapter(LayoutAdapter):
             image_width=max(output_width, 1),
             image_height=max(output_height, 1),
             predictions=predictions,
+            layout_pages=[page.model_copy(update={"items": []}) for page in layout_pages],
         )
 
 
@@ -1989,10 +1902,7 @@ class AnyformatLayoutAdapter(LayoutAdapter):
         page_filter: int | None = None,
     ) -> LayoutOutput:
         if isinstance(inference_result.output, LayoutOutput):
-            if page_filter is None:
-                return inference_result.output
-            filtered = [p for p in inference_result.output.predictions if p.page == page_filter]
-            return inference_result.output.model_copy(update={"predictions": filtered})
+            return filter_layout_output(inference_result.output, page_filter)
 
         if not isinstance(inference_result.output, ParseOutput):
             raise ValueError("AnyformatLayoutAdapter requires ParseOutput or LayoutOutput")
@@ -2035,6 +1945,7 @@ class AnyformatLayoutAdapter(LayoutAdapter):
                     predictions.append(
                         LayoutPrediction(
                             bbox=[seg.x * page_w, seg.y * page_h, (seg.x + seg.w) * page_w, (seg.y + seg.h) * page_h],
+                            r=seg.r,
                             score=float(seg.confidence) if seg.confidence is not None else 1.0,
                             label=label,
                             page=lp.page_number,
@@ -2051,6 +1962,7 @@ class AnyformatLayoutAdapter(LayoutAdapter):
             image_width=max(output_width, 1),
             image_height=max(output_height, 1),
             predictions=predictions,
+            layout_pages=[page.model_copy(update={"items": []}) for page in layout_pages],
         )
 
 
@@ -2082,10 +1994,7 @@ class TextractLayoutAdapter(LayoutAdapter):
         page_filter: int | None = None,
     ) -> LayoutOutput:
         if isinstance(inference_result.output, LayoutOutput):
-            if page_filter is None:
-                return inference_result.output
-            filtered = [p for p in inference_result.output.predictions if p.page == page_filter]
-            return inference_result.output.model_copy(update={"predictions": filtered})
+            return filter_layout_output(inference_result.output, page_filter)
 
         if not isinstance(inference_result.output, ParseOutput):
             raise ValueError("TextractLayoutAdapter requires ParseOutput or LayoutOutput")
@@ -2123,7 +2032,8 @@ class TextractLayoutAdapter(LayoutAdapter):
                     predictions.append(
                         LayoutPrediction(
                             bbox=[x1, y1, x2, y2],
-                            score=float(seg.confidence or 1.0),
+                            r=seg.r,
+                            score=float(1.0 if seg.confidence is None else seg.confidence),
                             label=label,
                             page=page_number,
                             content=content,
@@ -2141,6 +2051,7 @@ class TextractLayoutAdapter(LayoutAdapter):
             image_width=max(output_width, 1),
             image_height=max(output_height, 1),
             predictions=predictions,
+            layout_pages=[page.model_copy(update={"items": []}) for page in layout_pages],
         )
 
     def to_granular_pages(self, inference_result: InferenceResult) -> list[_GranularPage]:
@@ -2181,10 +2092,7 @@ class LandingAILayoutAdapter(LayoutAdapter):
         page_filter: int | None = None,
     ) -> LayoutOutput:
         if isinstance(inference_result.output, LayoutOutput):
-            if page_filter is None:
-                return inference_result.output
-            filtered = [p for p in inference_result.output.predictions if p.page == page_filter]
-            return inference_result.output.model_copy(update={"predictions": filtered})
+            return filter_layout_output(inference_result.output, page_filter)
 
         if not isinstance(inference_result.output, ParseOutput):
             raise ValueError("LandingAILayoutAdapter requires ParseOutput or LayoutOutput")
@@ -2222,7 +2130,8 @@ class LandingAILayoutAdapter(LayoutAdapter):
                     predictions.append(
                         LayoutPrediction(
                             bbox=[x1, y1, x2, y2],
-                            score=float(seg.confidence or 1.0),
+                            r=seg.r,
+                            score=float(1.0 if seg.confidence is None else seg.confidence),
                             label=label,
                             page=page_number,
                             content=content,
@@ -2240,6 +2149,7 @@ class LandingAILayoutAdapter(LayoutAdapter):
             image_width=max(output_width, 1),
             image_height=max(output_height, 1),
             predictions=predictions,
+            layout_pages=[page.model_copy(update={"items": []}) for page in layout_pages],
         )
 
 
@@ -2271,10 +2181,7 @@ class ExtendLayoutAdapter(LayoutAdapter):
         page_filter: int | None = None,
     ) -> LayoutOutput:
         if isinstance(inference_result.output, LayoutOutput):
-            if page_filter is None:
-                return inference_result.output
-            filtered = [p for p in inference_result.output.predictions if p.page == page_filter]
-            return inference_result.output.model_copy(update={"predictions": filtered})
+            return filter_layout_output(inference_result.output, page_filter)
 
         if not isinstance(inference_result.output, ParseOutput):
             raise ValueError("ExtendLayoutAdapter requires ParseOutput or LayoutOutput")
@@ -2312,7 +2219,8 @@ class ExtendLayoutAdapter(LayoutAdapter):
                     predictions.append(
                         LayoutPrediction(
                             bbox=[x1, y1, x2, y2],
-                            score=float(seg.confidence or 1.0),
+                            r=seg.r,
+                            score=float(1.0 if seg.confidence is None else seg.confidence),
                             label=label,
                             page=page_number,
                             content=content,
@@ -2330,6 +2238,7 @@ class ExtendLayoutAdapter(LayoutAdapter):
             image_width=max(output_width, 1),
             image_height=max(output_height, 1),
             predictions=predictions,
+            layout_pages=[page.model_copy(update={"items": []}) for page in layout_pages],
         )
 
 
@@ -2362,10 +2271,7 @@ class AzureDILayoutAdapter(LayoutAdapter):
         page_filter: int | None = None,
     ) -> LayoutOutput:
         if isinstance(inference_result.output, LayoutOutput):
-            if page_filter is None:
-                return inference_result.output
-            filtered = [p for p in inference_result.output.predictions if p.page == page_filter]
-            return inference_result.output.model_copy(update={"predictions": filtered})
+            return filter_layout_output(inference_result.output, page_filter)
 
         if not isinstance(inference_result.output, ParseOutput):
             raise ValueError("AzureDILayoutAdapter requires ParseOutput or LayoutOutput")
@@ -2406,7 +2312,8 @@ class AzureDILayoutAdapter(LayoutAdapter):
                     predictions.append(
                         LayoutPrediction(
                             bbox=[x1, y1, x2, y2],
-                            score=float(seg.confidence or 1.0),
+                            r=seg.r,
+                            score=float(1.0 if seg.confidence is None else seg.confidence),
                             label=label,
                             page=page_number,
                             content=content,
@@ -2425,6 +2332,7 @@ class AzureDILayoutAdapter(LayoutAdapter):
             image_width=max(output_width, 1),
             image_height=max(output_height, 1),
             predictions=predictions,
+            layout_pages=[page.model_copy(update={"items": []}) for page in layout_pages],
         )
 
     def to_granular_pages(self, inference_result: InferenceResult) -> list[_GranularPage]:
@@ -2471,10 +2379,7 @@ class GoogleDocAILayoutAdapter(LayoutAdapter):
         page_filter: int | None = None,
     ) -> LayoutOutput:
         if isinstance(inference_result.output, LayoutOutput):
-            if page_filter is None:
-                return inference_result.output
-            filtered = [p for p in inference_result.output.predictions if p.page == page_filter]
-            return inference_result.output.model_copy(update={"predictions": filtered})
+            return filter_layout_output(inference_result.output, page_filter)
 
         if not isinstance(inference_result.output, ParseOutput):
             raise ValueError("GoogleDocAILayoutAdapter requires ParseOutput or LayoutOutput")
@@ -2512,7 +2417,8 @@ class GoogleDocAILayoutAdapter(LayoutAdapter):
                     predictions.append(
                         LayoutPrediction(
                             bbox=[x1, y1, x2, y2],
-                            score=float(seg.confidence or 1.0),
+                            r=seg.r,
+                            score=float(1.0 if seg.confidence is None else seg.confidence),
                             label=label,
                             page=page_number,
                             content=content,
@@ -2530,6 +2436,7 @@ class GoogleDocAILayoutAdapter(LayoutAdapter):
             image_width=max(output_width, 1),
             image_height=max(output_height, 1),
             predictions=predictions,
+            layout_pages=[page.model_copy(update={"items": []}) for page in layout_pages],
         )
 
 
@@ -2562,10 +2469,7 @@ class UnstructuredLayoutAdapter(LayoutAdapter):
         page_filter: int | None = None,
     ) -> LayoutOutput:
         if isinstance(inference_result.output, LayoutOutput):
-            if page_filter is None:
-                return inference_result.output
-            filtered = [p for p in inference_result.output.predictions if p.page == page_filter]
-            return inference_result.output.model_copy(update={"predictions": filtered})
+            return filter_layout_output(inference_result.output, page_filter)
 
         if not isinstance(inference_result.output, ParseOutput):
             raise ValueError("UnstructuredLayoutAdapter requires ParseOutput or LayoutOutput")
@@ -2603,7 +2507,8 @@ class UnstructuredLayoutAdapter(LayoutAdapter):
                     predictions.append(
                         LayoutPrediction(
                             bbox=[x1, y1, x2, y2],
-                            score=float(seg.confidence or 1.0),
+                            r=seg.r,
+                            score=float(1.0 if seg.confidence is None else seg.confidence),
                             label=label,
                             page=page_number,
                             content=content,
@@ -2621,6 +2526,7 @@ class UnstructuredLayoutAdapter(LayoutAdapter):
             image_width=max(output_width, 1),
             image_height=max(output_height, 1),
             predictions=predictions,
+            layout_pages=[page.model_copy(update={"items": []}) for page in layout_pages],
         )
 
 
@@ -2676,10 +2582,7 @@ class DeepSeekOCR2LayoutAdapter(LayoutAdapter):
         page_filter: int | None = None,
     ) -> LayoutOutput:
         if isinstance(inference_result.output, LayoutOutput):
-            if page_filter is None:
-                return inference_result.output
-            filtered = [p for p in inference_result.output.predictions if p.page == page_filter]
-            return inference_result.output.model_copy(update={"predictions": filtered})
+            return filter_layout_output(inference_result.output, page_filter)
 
         if not isinstance(inference_result.output, ParseOutput):
             raise ValueError("DeepSeekOCR2LayoutAdapter requires ParseOutput or LayoutOutput")
@@ -2716,7 +2619,8 @@ class DeepSeekOCR2LayoutAdapter(LayoutAdapter):
                     predictions.append(
                         LayoutPrediction(
                             bbox=[x1, y1, x2, y2],
-                            score=float(seg.confidence or 1.0),
+                            r=seg.r,
+                            score=float(1.0 if seg.confidence is None else seg.confidence),
                             label=label,
                             page=page_number,
                             content=content,
@@ -2734,6 +2638,7 @@ class DeepSeekOCR2LayoutAdapter(LayoutAdapter):
             image_width=max(output_width, 1),
             image_height=max(output_height, 1),
             predictions=predictions,
+            layout_pages=[page.model_copy(update={"items": []}) for page in layout_pages],
         )
 
 
@@ -2765,10 +2670,7 @@ class Chandra2LayoutAdapter(LayoutAdapter):
         page_filter: int | None = None,
     ) -> LayoutOutput:
         if isinstance(inference_result.output, LayoutOutput):
-            if page_filter is None:
-                return inference_result.output
-            filtered = [p for p in inference_result.output.predictions if p.page == page_filter]
-            return inference_result.output.model_copy(update={"predictions": filtered})
+            return filter_layout_output(inference_result.output, page_filter)
 
         if not isinstance(inference_result.output, ParseOutput):
             raise ValueError("Chandra2LayoutAdapter requires ParseOutput or LayoutOutput")
@@ -2805,7 +2707,8 @@ class Chandra2LayoutAdapter(LayoutAdapter):
                     predictions.append(
                         LayoutPrediction(
                             bbox=[x1, y1, x2, y2],
-                            score=float(seg.confidence or 1.0),
+                            r=seg.r,
+                            score=float(1.0 if seg.confidence is None else seg.confidence),
                             label=label,
                             page=page_number,
                             content=content,
@@ -2823,6 +2726,7 @@ class Chandra2LayoutAdapter(LayoutAdapter):
             image_width=max(output_width, 1),
             image_height=max(output_height, 1),
             predictions=predictions,
+            layout_pages=[page.model_copy(update={"items": []}) for page in layout_pages],
         )
 
 
@@ -2854,10 +2758,7 @@ class QfOcrLayoutAdapter(LayoutAdapter):
         page_filter: int | None = None,
     ) -> LayoutOutput:
         if isinstance(inference_result.output, LayoutOutput):
-            if page_filter is None:
-                return inference_result.output
-            filtered = [p for p in inference_result.output.predictions if p.page == page_filter]
-            return inference_result.output.model_copy(update={"predictions": filtered})
+            return filter_layout_output(inference_result.output, page_filter)
 
         if not isinstance(inference_result.output, ParseOutput):
             raise ValueError("QfOcrLayoutAdapter requires ParseOutput or LayoutOutput")
@@ -2894,7 +2795,8 @@ class QfOcrLayoutAdapter(LayoutAdapter):
                     predictions.append(
                         LayoutPrediction(
                             bbox=[x1, y1, x2, y2],
-                            score=float(seg.confidence or 1.0),
+                            r=seg.r,
+                            score=float(1.0 if seg.confidence is None else seg.confidence),
                             label=label,
                             page=page_number,
                             content=content,
@@ -2912,6 +2814,7 @@ class QfOcrLayoutAdapter(LayoutAdapter):
             image_width=max(output_width, 1),
             image_height=max(output_height, 1),
             predictions=predictions,
+            layout_pages=[page.model_copy(update={"items": []}) for page in layout_pages],
         )
 
 
@@ -3056,10 +2959,7 @@ class DatalabLayoutAdapter(LayoutAdapter):
         page_filter: int | None = None,
     ) -> LayoutOutput:
         if isinstance(inference_result.output, LayoutOutput):
-            if page_filter is None:
-                return inference_result.output
-            filtered = [p for p in inference_result.output.predictions if p.page == page_filter]
-            return inference_result.output.model_copy(update={"predictions": filtered})
+            return filter_layout_output(inference_result.output, page_filter)
 
         if not isinstance(inference_result.output, ParseOutput):
             raise ValueError("DatalabLayoutAdapter requires ParseOutput or LayoutOutput")
@@ -3097,7 +2997,8 @@ class DatalabLayoutAdapter(LayoutAdapter):
                     predictions.append(
                         LayoutPrediction(
                             bbox=[x1, y1, x2, y2],
-                            score=float(seg.confidence or 1.0),
+                            r=seg.r,
+                            score=float(1.0 if seg.confidence is None else seg.confidence),
                             label=label,
                             page=page_number,
                             content=content,
@@ -3115,6 +3016,7 @@ class DatalabLayoutAdapter(LayoutAdapter):
             image_width=max(output_width, 1),
             image_height=max(output_height, 1),
             predictions=predictions,
+            layout_pages=[page.model_copy(update={"items": []}) for page in layout_pages],
         )
 
 
@@ -3151,10 +3053,7 @@ class QwenLayoutAdapter(LayoutAdapter):
         page_filter: int | None = None,
     ) -> LayoutOutput:
         if isinstance(inference_result.output, LayoutOutput):
-            if page_filter is None:
-                return inference_result.output
-            filtered = [p for p in inference_result.output.predictions if p.page == page_filter]
-            return inference_result.output.model_copy(update={"predictions": filtered})
+            return filter_layout_output(inference_result.output, page_filter)
 
         if not isinstance(inference_result.output, ParseOutput):
             raise ValueError("QwenLayoutAdapter requires ParseOutput or LayoutOutput")
@@ -3192,7 +3091,8 @@ class QwenLayoutAdapter(LayoutAdapter):
                     predictions.append(
                         LayoutPrediction(
                             bbox=[x1, y1, x2, y2],
-                            score=float(seg.confidence or 1.0),
+                            r=seg.r,
+                            score=float(1.0 if seg.confidence is None else seg.confidence),
                             label=label,
                             page=page_number,
                             content=content,
@@ -3218,6 +3118,7 @@ class QwenLayoutAdapter(LayoutAdapter):
             image_width=max(output_width, 1),
             image_height=max(output_height, 1),
             predictions=predictions,
+            layout_pages=[page.model_copy(update={"items": []}) for page in layout_pages],
         )
 
 
@@ -3249,10 +3150,7 @@ class MinerU25LayoutAdapter(LayoutAdapter):
         page_filter: int | None = None,
     ) -> LayoutOutput:
         if isinstance(inference_result.output, LayoutOutput):
-            if page_filter is None:
-                return inference_result.output
-            filtered = [p for p in inference_result.output.predictions if p.page == page_filter]
-            return inference_result.output.model_copy(update={"predictions": filtered})
+            return filter_layout_output(inference_result.output, page_filter)
 
         if not isinstance(inference_result.output, ParseOutput):
             raise ValueError("MinerU25LayoutAdapter requires ParseOutput or LayoutOutput")
@@ -3289,7 +3187,8 @@ class MinerU25LayoutAdapter(LayoutAdapter):
                     predictions.append(
                         LayoutPrediction(
                             bbox=[x1, y1, x2, y2],
-                            score=float(seg.confidence or 1.0),
+                            r=seg.r,
+                            score=float(1.0 if seg.confidence is None else seg.confidence),
                             label=label,
                             page=page_number,
                             content=content,
@@ -3307,6 +3206,7 @@ class MinerU25LayoutAdapter(LayoutAdapter):
             image_width=max(output_width, 1),
             image_height=max(output_height, 1),
             predictions=predictions,
+            layout_pages=[page.model_copy(update={"items": []}) for page in layout_pages],
         )
 
 
@@ -3322,9 +3222,8 @@ class KdlFrontierNanoLayoutAdapter(LayoutAdapter):
     ParseOutput.layout_pages.
 
     The provider emits per-region elements with normalized [0,1] bboxes (no
-    page pixel dims). Coordinates are scaled to a consistent SCALE so the
-    layout metric's normalize_bbox_xyxy(image_width/height) recovers the
-    original [0,1] space.
+    page pixel dims in older outputs). Use each page's dimensions when supplied;
+    otherwise retain the legacy SCALE frame for normalized coordinates.
     """
 
     _SCALE = 1000
@@ -3349,18 +3248,20 @@ class KdlFrontierNanoLayoutAdapter(LayoutAdapter):
         page_filter: int | None = None,
     ) -> LayoutOutput:
         if isinstance(inference_result.output, LayoutOutput):
-            if page_filter is None:
-                return inference_result.output
-            filtered = [p for p in inference_result.output.predictions if p.page == page_filter]
-            return inference_result.output.model_copy(update={"predictions": filtered})
+            return filter_layout_output(inference_result.output, page_filter)
         if not isinstance(inference_result.output, ParseOutput):
             raise ValueError("KdlFrontierNanoLayoutAdapter requires ParseOutput or LayoutOutput")
 
-        scale = self._SCALE
+        layout_pages = inference_result.output.layout_pages
+        first_page = layout_pages[0] if layout_pages else None
+        output_width = int(first_page.width or self._SCALE) if first_page else self._SCALE
+        output_height = int(first_page.height or self._SCALE) if first_page else self._SCALE
         predictions: list[LayoutPrediction] = []
-        for lp in inference_result.output.layout_pages:
+        for lp in layout_pages:
             if page_filter is not None and lp.page_number != page_filter:
                 continue
+            page_w = float(lp.width or output_width)
+            page_h = float(lp.height or output_height)
             for item in lp.items:
                 segs = item.layout_segments or ([item.bbox] if item.bbox else [])
                 for seg in segs:
@@ -3368,14 +3269,15 @@ class KdlFrontierNanoLayoutAdapter(LayoutAdapter):
                         continue
                     raw_label = seg.label or item.type or "Text"
                     label = _NANO_LAYOUT_LABEL_TO_CANONICAL.get(str(raw_label), str(raw_label))
-                    x1, y1 = seg.x * scale, seg.y * scale
-                    x2, y2 = (seg.x + seg.w) * scale, (seg.y + seg.h) * scale
+                    x1, y1 = seg.x * page_w, seg.y * page_h
+                    x2, y2 = (seg.x + seg.w) * page_w, (seg.y + seg.h) * page_h
                     text = item.md or item.value or ""
                     content = _build_docling_parse_content("table" if str(label).lower() == "table" else "text", text)
                     predictions.append(
                         LayoutPrediction(
                             bbox=[x1, y1, x2, y2],
-                            score=1.0,
+                            r=seg.r,
+                            score=float(1.0 if seg.confidence is None else seg.confidence),
                             label=str(label),
                             page=lp.page_number,
                             content=content,
@@ -3388,9 +3290,10 @@ class KdlFrontierNanoLayoutAdapter(LayoutAdapter):
             example_id=inference_result.request.example_id,
             pipeline_name=inference_result.pipeline_name,
             model=LayoutDetectionModel.KDL_FRONTIER_NANO_LAYOUT,
-            image_width=scale,
-            image_height=scale,
+            image_width=output_width,
+            image_height=output_height,
             predictions=predictions,
+            layout_pages=[page.model_copy(update={"items": []}) for page in layout_pages],
         )
 
 
@@ -3414,12 +3317,7 @@ class PyMuPDF4LLMLayoutAdapter(LayoutAdapter):
         page_filter: int | None = None,
     ) -> LayoutOutput:
         if isinstance(inference_result.output, LayoutOutput):
-            if page_filter is None:
-                return inference_result.output
-            filtered = [
-                prediction for prediction in inference_result.output.predictions if prediction.page == page_filter
-            ]
-            return inference_result.output.model_copy(update={"predictions": filtered})
+            return filter_layout_output(inference_result.output, page_filter)
         if not isinstance(inference_result.output, ParseOutput):
             raise ValueError("PyMuPDF4LLMLayoutAdapter requires ParseOutput or LayoutOutput")
 
@@ -3455,8 +3353,8 @@ class PyMuPDF4LLMLayoutAdapter(LayoutAdapter):
                                 (segment.x + segment.w) * page_width,
                                 (segment.y + segment.h) * page_height,
                             ],
-                            # Deliberately not `float(seg.confidence or 1.0)`: that
-                            # maps a genuine 0.0 confidence to full confidence.
+                            r=segment.r,
+                            # Preserve genuine zero confidence; only None uses the default.
                             score=segment.confidence if segment.confidence is not None else 1.0,
                             label=label,
                             page=page.page_number,
@@ -3478,6 +3376,7 @@ class PyMuPDF4LLMLayoutAdapter(LayoutAdapter):
             image_width=max(output_width, 1),
             image_height=max(output_height, 1),
             predictions=predictions,
+            layout_pages=[page.model_copy(update={"items": []}) for page in layout_pages],
             markdown=inference_result.output.markdown,
         )
 
@@ -3509,10 +3408,7 @@ class PulseLayoutAdapter(LayoutAdapter):
         page_filter: int | None = None,
     ) -> LayoutOutput:
         if isinstance(inference_result.output, LayoutOutput):
-            if page_filter is None:
-                return inference_result.output
-            filtered = [p for p in inference_result.output.predictions if p.page == page_filter]
-            return inference_result.output.model_copy(update={"predictions": filtered})
+            return filter_layout_output(inference_result.output, page_filter)
 
         if not isinstance(inference_result.output, ParseOutput):
             raise ValueError("PulseLayoutAdapter requires ParseOutput or LayoutOutput")
@@ -3550,7 +3446,8 @@ class PulseLayoutAdapter(LayoutAdapter):
                     predictions.append(
                         LayoutPrediction(
                             bbox=[x1, y1, x2, y2],
-                            score=float(seg.confidence or 1.0),
+                            r=seg.r,
+                            score=float(1.0 if seg.confidence is None else seg.confidence),
                             label=label,
                             page=page_number,
                             content=content,
@@ -3568,6 +3465,7 @@ class PulseLayoutAdapter(LayoutAdapter):
             image_width=max(output_width, 1),
             image_height=max(output_height, 1),
             predictions=predictions,
+            layout_pages=[page.model_copy(update={"items": []}) for page in layout_pages],
         )
 
 
@@ -3606,10 +3504,7 @@ class InfinityParser2LayoutAdapter(LayoutAdapter):
         page_filter: int | None = None,
     ) -> LayoutOutput:
         if isinstance(inference_result.output, LayoutOutput):
-            if page_filter is None:
-                return inference_result.output
-            filtered = [p for p in inference_result.output.predictions if p.page == page_filter]
-            return inference_result.output.model_copy(update={"predictions": filtered})
+            return filter_layout_output(inference_result.output, page_filter)
 
         if not isinstance(inference_result.output, ParseOutput):
             raise ValueError("InfinityParser2LayoutAdapter requires ParseOutput or LayoutOutput")
@@ -3645,7 +3540,8 @@ class InfinityParser2LayoutAdapter(LayoutAdapter):
                     predictions.append(
                         LayoutPrediction(
                             bbox=[x1, y1, x2, y2],
-                            score=float(seg.confidence or 1.0),
+                            r=seg.r,
+                            score=float(1.0 if seg.confidence is None else seg.confidence),
                             label=label,
                             page=page_number,
                             content=content,
@@ -3663,6 +3559,7 @@ class InfinityParser2LayoutAdapter(LayoutAdapter):
             image_width=max(output_width, 1),
             image_height=max(output_height, 1),
             predictions=predictions,
+            layout_pages=[page.model_copy(update={"items": []}) for page in layout_pages],
         )
 
 
@@ -3691,12 +3588,7 @@ class LiteParseLayoutAdapter(LayoutAdapter):
         page_filter: int | None = None,
     ) -> LayoutOutput:
         if isinstance(inference_result.output, LayoutOutput):
-            if page_filter is None:
-                return inference_result.output
-            filtered = [
-                prediction for prediction in inference_result.output.predictions if prediction.page == page_filter
-            ]
-            return inference_result.output.model_copy(update={"predictions": filtered})
+            return filter_layout_output(inference_result.output, page_filter)
         if not isinstance(inference_result.output, ParseOutput):
             raise ValueError("LiteParseLayoutAdapter requires ParseOutput or LayoutOutput")
 
@@ -3729,6 +3621,7 @@ class LiteParseLayoutAdapter(LayoutAdapter):
                                 (segment.x + segment.w) * page_width,
                                 (segment.y + segment.h) * page_height,
                             ],
+                            r=segment.r,
                             score=segment.confidence if segment.confidence is not None else 1.0,
                             label=label,
                             page=page.page_number,
@@ -3745,6 +3638,7 @@ class LiteParseLayoutAdapter(LayoutAdapter):
             image_width=max(output_width, 1),
             image_height=max(output_height, 1),
             predictions=predictions,
+            layout_pages=[page.model_copy(update={"items": []}) for page in layout_pages],
             markdown=inference_result.output.markdown,
         )
 
@@ -3778,16 +3672,7 @@ class HpdParsingLayoutAdapter(LiteParseLayoutAdapter):
 
 @register_layout_adapter("teleocr", priority=90)
 class TeleOCRLayoutAdapter(LayoutAdapter):
-    """Project TeleOCR's normalized page boxes into one common frame.
-
-    ``LayoutOutput`` carries one global width and height, so predictions from
-    differently sized PDF pages cannot use their original pixel dimensions.
-    TeleOCR already stores every segment in normalized [0, 1] coordinates;
-    scaling all pages to the same square preserves those coordinates through
-    evaluator normalization, with or without a page filter.
-    """
-
-    _SCALE = 1000
+    """Project normalized segments into each page's physical coordinate frame."""
 
     def to_layout_output(
         self,
@@ -3796,21 +3681,21 @@ class TeleOCRLayoutAdapter(LayoutAdapter):
         page_filter: int | None = None,
     ) -> LayoutOutput:
         if isinstance(inference_result.output, LayoutOutput):
-            if page_filter is None:
-                return inference_result.output
-            predictions = [
-                prediction for prediction in inference_result.output.predictions if prediction.page == page_filter
-            ]
-            return inference_result.output.model_copy(update={"predictions": predictions})
+            return filter_layout_output(inference_result.output, page_filter)
         if not isinstance(inference_result.output, ParseOutput):
             raise ValueError("TeleOCRLayoutAdapter requires ParseOutput or LayoutOutput")
         if not inference_result.output.layout_pages:
             raise ValueError("TeleOCRLayoutAdapter requires non-empty layout_pages")
 
+        layout_pages = inference_result.output.layout_pages
+        output_width = layout_pages[0].width or 1
+        output_height = layout_pages[0].height or 1
         predictions: list[LayoutPrediction] = []
         for page in inference_result.output.layout_pages:
             if page_filter is not None and page.page_number != page_filter:
                 continue
+            page_width = page.width or output_width
+            page_height = page.height or output_height
             for item in page.items:
                 segments = item.layout_segments or ([item.bbox] if item.bbox is not None else [])
                 for segment in segments:
@@ -3823,11 +3708,12 @@ class TeleOCRLayoutAdapter(LayoutAdapter):
                     predictions.append(
                         LayoutPrediction(
                             bbox=[
-                                segment.x * self._SCALE,
-                                segment.y * self._SCALE,
-                                (segment.x + segment.w) * self._SCALE,
-                                (segment.y + segment.h) * self._SCALE,
+                                segment.x * page_width,
+                                segment.y * page_height,
+                                (segment.x + segment.w) * page_width,
+                                (segment.y + segment.h) * page_height,
                             ],
+                            r=segment.r,
                             score=segment.confidence if segment.confidence is not None else 1.0,
                             label=label,
                             page=page.page_number,
@@ -3841,9 +3727,10 @@ class TeleOCRLayoutAdapter(LayoutAdapter):
             example_id=inference_result.request.example_id,
             pipeline_name=inference_result.pipeline_name,
             model=LayoutDetectionModel.TELEOCR_LAYOUT,
-            image_width=self._SCALE,
-            image_height=self._SCALE,
+            image_width=int(output_width),
+            image_height=int(output_height),
             predictions=predictions,
+            layout_pages=[page.model_copy(update={"items": []}) for page in layout_pages],
             markdown=inference_result.output.markdown,
         )
 

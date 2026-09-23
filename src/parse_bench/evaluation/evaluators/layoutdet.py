@@ -1,7 +1,7 @@
 """Evaluator for LAYOUT_DETECTION product type."""
 
 from collections import Counter, defaultdict
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Literal
 
 import numpy as np
@@ -26,14 +26,13 @@ from parse_bench.evaluation.metrics.attribution.core import (
     normalize_layout_attributes,
     parse_gt_elements,
 )
-from parse_bench.evaluation.metrics.attribution.geometry import compute_ioa_matrix
 from parse_bench.evaluation.metrics.layoutdet.classification_utils import (
     compute_map_at_thresholds,
     compute_per_class_metrics,
+    rotated_overlap_fn,
 )
-from parse_bench.evaluation.metrics.layoutdet.iou import (
-    compute_iou_matrix,
-)
+from parse_bench.evaluation.metrics.layoutdet.furniture import PageFurnitureGroup, build_page_furniture_group
+from parse_bench.evaluation.metrics.layoutdet.overlap import compute_layout_iou, compute_layout_overlaps
 from parse_bench.evaluation.stats import build_operational_stats
 from parse_bench.layout_label_mapping import (
     map_label_to_target_ontology,
@@ -57,18 +56,6 @@ _PAGE_FURNITURE_Y_COVERAGE_THRESHOLD = 0.50
 
 
 @dataclass
-class _PageFurnitureGroup:
-    pred_indices: list[int]
-    clipped_boxes: list[list[float]]
-    representative_pred_idx: int | None
-    earliest_order_index: int | None
-    x_span_coverage: float = 0.0
-    x_fill_coverage: float = 0.0
-    y_coverage: float = 0.0
-    label_histogram: dict[str, int] = field(default_factory=dict)
-
-
-@dataclass
 class _PageFurnitureAttributionMatch:
     overlapping_indices: list[int]
     selected_indices: list[int]
@@ -83,109 +70,6 @@ class _PageFurnitureAttributionMatch:
 def _is_page_furniture(canonical_class: str | None) -> bool:
     """Return True for GT page furniture classes."""
     return str(canonical_class or "").strip() in _PAGE_FURNITURE_CLASSES
-
-
-def _clip_box_to_box(box: list[float], boundary: list[float]) -> list[float] | None:
-    """Return the clipped intersection box, or None when there is no overlap."""
-    x1 = max(box[0], boundary[0])
-    y1 = max(box[1], boundary[1])
-    x2 = min(box[2], boundary[2])
-    y2 = min(box[3], boundary[3])
-    if x2 <= x1 or y2 <= y1:
-        return None
-    return [x1, y1, x2, y2]
-
-
-def _interval_union_length(intervals: list[tuple[float, float]]) -> float:
-    """Return the total covered length of 1D intervals."""
-    merged = sorted((start, end) for start, end in intervals if end > start)
-    if not merged:
-        return 0.0
-
-    total = 0.0
-    curr_start, curr_end = merged[0]
-    for start, end in merged[1:]:
-        if start <= curr_end:
-            curr_end = max(curr_end, end)
-            continue
-        total += curr_end - curr_start
-        curr_start, curr_end = start, end
-    total += curr_end - curr_start
-    return total
-
-
-def _compute_page_furniture_band_coverage(
-    gt_box: list[float],
-    clipped_boxes: list[list[float]],
-) -> tuple[float, float, float]:
-    """Return normalized horizontal and vertical recovery of a GT furniture band."""
-    gt_width = max(gt_box[2] - gt_box[0], 0.0)
-    gt_height = max(gt_box[3] - gt_box[1], 0.0)
-    if gt_width <= 0.0 or gt_height <= 0.0 or not clipped_boxes:
-        return 0.0, 0.0, 0.0
-
-    x_span_coverage = (max(box[2] for box in clipped_boxes) - min(box[0] for box in clipped_boxes)) / gt_width
-    x_fill_coverage = _interval_union_length([(box[0], box[2]) for box in clipped_boxes]) / gt_width
-    y_coverage = _interval_union_length([(box[1], box[3]) for box in clipped_boxes]) / gt_height
-    return min(x_span_coverage, 1.0), min(x_fill_coverage, 1.0), min(y_coverage, 1.0)
-
-
-def _build_page_furniture_group(
-    *,
-    gt_box: list[float],
-    gt_idx: int,
-    pred_boxes: list[list[float]],
-    ioa_pred_to_gt: np.ndarray | None,
-    iou_row: np.ndarray | None = None,
-    pred_order_indices: list[int] | None = None,
-    pred_classes: list[str | None] | None = None,
-) -> _PageFurnitureGroup:
-    """Group predictions that recover a page-header/footer GT band."""
-    if ioa_pred_to_gt is None or not pred_boxes:
-        return _PageFurnitureGroup([], [], None, None)
-
-    candidate_indices = [
-        int(pred_idx) for pred_idx in np.where(ioa_pred_to_gt[:, gt_idx] >= LOCALIZATION_IOA_PRED_THRESHOLD)[0]
-    ]
-
-    retained_indices: list[int] = []
-    clipped_boxes: list[list[float]] = []
-    for pred_idx in candidate_indices:
-        clipped = _clip_box_to_box(pred_boxes[pred_idx], gt_box)
-        if clipped is None:
-            continue
-        retained_indices.append(pred_idx)
-        clipped_boxes.append(clipped)
-
-    if not retained_indices:
-        return _PageFurnitureGroup([], [], None, None)
-
-    representative_pred_idx = retained_indices[0]
-    if iou_row is not None:
-        representative_pred_idx = int(retained_indices[np.argmax(iou_row[retained_indices])])
-
-    if pred_order_indices is None:
-        earliest_order_index = min(retained_indices)
-    else:
-        earliest_order_index = min(pred_order_indices[pred_idx] for pred_idx in retained_indices)
-
-    label_histogram: dict[str, int] = {}
-    if pred_classes is not None:
-        label_histogram = dict(
-            Counter(str(pred_classes[pred_idx]) for pred_idx in retained_indices if pred_classes[pred_idx] is not None)
-        )
-
-    x_span_coverage, x_fill_coverage, y_coverage = _compute_page_furniture_band_coverage(gt_box, clipped_boxes)
-    return _PageFurnitureGroup(
-        pred_indices=retained_indices,
-        clipped_boxes=clipped_boxes,
-        representative_pred_idx=representative_pred_idx,
-        earliest_order_index=earliest_order_index,
-        x_span_coverage=x_span_coverage,
-        x_fill_coverage=x_fill_coverage,
-        y_coverage=y_coverage,
-        label_histogram=label_histogram,
-    )
 
 
 def _multiset_intersection_size(a: list[str], b: list[str]) -> int:
@@ -446,13 +330,17 @@ def _select_page_furniture_attribution_match(
 ) -> _PageFurnitureAttributionMatch:
     """Select the best contiguous ordered span inside a grouped furniture band."""
     pred_boxes = [pred.bbox_xyxy for pred in pred_blocks]
-    group = _build_page_furniture_group(
+    group = build_page_furniture_group(
         gt_box=gt_elements[gt_idx].bbox_xyxy,
         gt_idx=gt_idx,
         pred_boxes=pred_boxes,
         ioa_pred_to_gt=ioa_attr_pred,
         iou_row=iou_attr[gt_idx] if iou_attr is not None else None,
         pred_order_indices=[pred.order_index for pred in pred_blocks],
+        gt_angle=gt_elements[gt_idx].r,
+        pred_angles=[pred.r for pred in pred_blocks],
+        page_width=pred_blocks[0].page_width if pred_blocks else 1.0,
+        page_height=pred_blocks[0].page_height if pred_blocks else 1.0,
     )
 
     if not group.pred_indices:
@@ -638,7 +526,9 @@ class LayoutDetectionEvaluator(BaseEvaluator):
             page_filter=page_filter,
         )
 
-    def _extract_ground_truth(self, test_case: LayoutDetectionTestCase, *, target_ontology: str) -> list[dict]:
+    def _extract_ground_truth(
+        self, test_case: LayoutDetectionTestCase, *, target_ontology: str, layout_output: LayoutOutput
+    ) -> list[dict]:
         """
         Extract ground truth in evaluation format.
 
@@ -653,6 +543,7 @@ class LayoutDetectionEvaluator(BaseEvaluator):
 
         # Get layout annotations from test_rules
         annotations = test_case.get_layout_annotations()
+        pages = {page.page_number: page for page in layout_output.layout_pages}
 
         for annotation in annotations:
             # Convert normalized COCO format to normalized xyxy format
@@ -672,9 +563,19 @@ class LayoutDetectionEvaluator(BaseEvaluator):
                     # Unknown class, skip
                     continue
 
+            page_number = annotation.page + 1
+            page = pages.get(page_number)
             ground_truth.append(
                 {
                     "bbox": bbox_xyxy,
+                    "r": annotation.r,
+                    "page": page_number,
+                    "page_width": page.width
+                    if page is not None and page.width is not None
+                    else layout_output.image_width,
+                    "page_height": page.height
+                    if page is not None and page.height is not None
+                    else layout_output.image_height,
                     "class_name": class_name,
                 }
             )
@@ -727,7 +628,9 @@ class LayoutDetectionEvaluator(BaseEvaluator):
             layout_output,
             target_ontology=target_ontology,
         )
-        ground_truth = self._extract_ground_truth(test_case, target_ontology=target_ontology)
+        ground_truth = self._extract_ground_truth(
+            test_case, target_ontology=target_ontology, layout_output=layout_output
+        )
 
         normalized_ground_truth = [
             {
@@ -759,8 +662,21 @@ class LayoutDetectionEvaluator(BaseEvaluator):
 
         metrics: list[MetricValue] = []
 
+        # Use rendered footprints whenever either side is rotated.
+        overlap_fn = (
+            rotated_overlap_fn({})
+            if any((entry.get("r") or 0) % 360 for entry in predictions + normalized_ground_truth)
+            else None
+        )
         # Compute mAP at multiple thresholds
-        map_metrics = compute_map_at_thresholds(predictions, normalized_ground_truth, class_names, self._iou_thresholds)
+        map_metrics = compute_map_at_thresholds(
+            predictions,
+            normalized_ground_truth,
+            class_names,
+            self._iou_thresholds,
+            overlap_fn=overlap_fn,
+            page_key="page",
+        )
 
         metrics.append(
             MetricValue(
@@ -786,7 +702,12 @@ class LayoutDetectionEvaluator(BaseEvaluator):
 
         # Compute per-class metrics at IoU=0.5
         per_class_metrics = compute_per_class_metrics(
-            predictions, normalized_ground_truth, class_names, iou_threshold=0.5
+            predictions,
+            normalized_ground_truth,
+            class_names,
+            iou_threshold=0.5,
+            overlap_fn=overlap_fn,
+            page_key="page",
         )
 
         # Add per-class F1 scores
@@ -914,18 +835,18 @@ class LayoutDetectionEvaluator(BaseEvaluator):
 
             gt_boxes = [coco_normalized_to_xyxy_normalized(rule.bbox) for rule in layout_rules]
             pred_boxes = [pred["bbox"] for pred in page_predictions]
-            iou_matrix = compute_iou_matrix(
-                np.array(gt_boxes, dtype=float) if gt_boxes else np.zeros((0, 4)),
-                np.array(pred_boxes, dtype=float) if pred_boxes else np.zeros((0, 4)),
-            )
-
-            ioa_matrix = compute_ioa_matrix(
-                np.array(gt_boxes, dtype=float) if gt_boxes else np.zeros((0, 4)),
-                np.array(pred_boxes, dtype=float) if pred_boxes else np.zeros((0, 4)),
-            )
-            ioa_matrix_pred = compute_ioa_matrix(
-                np.array(pred_boxes, dtype=float) if pred_boxes else np.zeros((0, 4)),
-                np.array(gt_boxes, dtype=float) if gt_boxes else np.zeros((0, 4)),
+            gt_array = np.array(gt_boxes, dtype=float).reshape(-1, 4)
+            pred_array = np.array(pred_boxes, dtype=float).reshape(-1, 4)
+            gt_angles = [rule.r for rule in layout_rules]
+            pred_angles = [pred.get("r") for pred in page_predictions]
+            page = next((p for p in layout_output.layout_pages if p.page_number == page_number), None)
+            iou_matrix, ioa_matrix, ioa_matrix_pred = compute_layout_overlaps(
+                gt_array,
+                pred_array,
+                gt_angles,
+                pred_angles,
+                page_width=page.width if page is not None and page.width is not None else layout_output.image_width,
+                page_height=page.height if page is not None and page.height is not None else layout_output.image_height,
             )
 
             if gt_boxes:
@@ -990,9 +911,18 @@ class LayoutDetectionEvaluator(BaseEvaluator):
                 if gt_elements and pred_blocks:
                     gt_boxes_attr = np.array([g.bbox_xyxy for g in gt_elements])
                     pred_boxes_attr = np.array([p.bbox_xyxy for p in pred_blocks])
-                    ioa_attr = compute_ioa_matrix(gt_boxes_attr, pred_boxes_attr)
-                    ioa_attr_pred = compute_ioa_matrix(pred_boxes_attr, gt_boxes_attr)
-                    iou_attr = compute_iou_matrix(gt_boxes_attr, pred_boxes_attr)
+                    gt_angles = [g.r for g in gt_elements]
+                    pred_angles = [p.r for p in pred_blocks]
+                    page_width = pred_blocks[0].page_width
+                    page_height = pred_blocks[0].page_height
+                    iou_attr, ioa_attr, ioa_attr_pred = compute_layout_overlaps(
+                        gt_boxes_attr,
+                        pred_boxes_attr,
+                        gt_angles,
+                        pred_angles,
+                        page_width=page_width,
+                        page_height=page_height,
+                    )
                 elif gt_elements is not None and pred_blocks is not None:
                     ioa_attr = np.zeros((len(gt_elements), len(pred_blocks)))
                     ioa_attr_pred = np.zeros((len(pred_blocks), len(gt_elements)))
@@ -1006,7 +936,7 @@ class LayoutDetectionEvaluator(BaseEvaluator):
                 classification_total += 1
                 gt_class_raw = rule.canonical_class
                 is_page_furniture = _is_page_furniture(gt_class_raw)
-                furniture_group = _PageFurnitureGroup([], [], None, None)
+                furniture_group = PageFurnitureGroup([], [], None, None)
 
                 best_ioa = 0.0
                 best_pred_idx = None
@@ -1018,7 +948,7 @@ class LayoutDetectionEvaluator(BaseEvaluator):
                 best_ioa_pred = 0.0
                 if pred_boxes:
                     if is_page_furniture:
-                        furniture_group = _build_page_furniture_group(
+                        furniture_group = build_page_furniture_group(
                             gt_box=gt_boxes[gt_idx],
                             gt_idx=gt_idx,
                             pred_boxes=pred_boxes,
@@ -1026,6 +956,10 @@ class LayoutDetectionEvaluator(BaseEvaluator):
                             iou_row=iou_matrix[gt_idx],
                             pred_order_indices=page_prediction_order_indices,
                             pred_classes=page_prediction_classes,
+                            gt_angle=rule.r,
+                            pred_angles=[pred.get("r") for pred in page_predictions],
+                            page_width=page_predictions[0]["page_width"],
+                            page_height=page_predictions[0]["page_height"],
                         )
                         if furniture_group.representative_pred_idx is not None:
                             best_pred_idx = furniture_group.representative_pred_idx
@@ -1503,7 +1437,6 @@ class LayoutDetectionEvaluator(BaseEvaluator):
 
         import numpy as np
 
-        from parse_bench.evaluation.metrics.layoutdet.iou import compute_iou_matrix
         from parse_bench.schemas.metrics import (
             ConfusionMatrixCell,
             ConfusionMatrixMetrics,
@@ -1558,7 +1491,9 @@ class LayoutDetectionEvaluator(BaseEvaluator):
                     target_ontology=target_ontology,
                     page_filter=page_filter,
                 )
-                ground_truth = self._extract_ground_truth(test_case, target_ontology=target_ontology)
+                ground_truth = self._extract_ground_truth(
+                    test_case, target_ontology=target_ontology, layout_output=layout_output
+                )
 
                 ground_truth = [
                     {
@@ -1604,7 +1539,19 @@ class LayoutDetectionEvaluator(BaseEvaluator):
             gt_bboxes = np.array(gt_bboxes_list, dtype=float)
 
             # Compute IoU matrix
-            iou_matrix = compute_iou_matrix(pred_bboxes, gt_bboxes)
+            iou_matrix = compute_layout_iou(
+                gt_bboxes,
+                pred_bboxes,
+                [gt.get("r") for gt in ground_truth],
+                [pred.get("r") for pred in predictions],
+                page_widths=[gt["page_width"] for gt in ground_truth],
+                page_heights=[gt["page_height"] for gt in ground_truth],
+            ).T
+            same_page = (
+                np.array([pred["page"] for pred in predictions])[:, None]
+                == np.array([gt["page"] for gt in ground_truth])[None, :]
+            )
+            iou_matrix = np.where(same_page, iou_matrix, 0.0)
 
             # Class-agnostic greedy matching
             sorted_indices = np.argsort(-pred_scores)

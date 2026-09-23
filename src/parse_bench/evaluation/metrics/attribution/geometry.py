@@ -8,6 +8,9 @@ a service merges multiple GT elements into one predicted region.
 
 import numpy as np
 
+from parse_bench.evaluation.metrics.layoutdet.iou import compute_ioa_matrix as compute_ioa_matrix
+from parse_bench.evaluation.metrics.layoutdet.iou import compute_rotated_ioa_matrix
+
 
 def coco_to_xyxy(bbox: list[float]) -> list[float]:
     """Convert COCO format bbox [x, y, width, height] to xyxy format [x1, y1, x2, y2].
@@ -93,38 +96,14 @@ def compute_ioa(gt_box_xyxy: list[float], pred_box_xyxy: list[float]) -> float:
     return inter / gt_area
 
 
-def compute_ioa_matrix(
-    gt_boxes: np.ndarray,  # shape (N, 4) xyxy
-    pred_boxes: np.ndarray,  # shape (M, 4) xyxy
-) -> np.ndarray:  # shape (N, M)
-    """Compute pairwise IoA matrix: IoA[i, j] = intersection(gt_i, pred_j) / area(gt_i).
-
-    :param gt_boxes: Array of shape (N, 4) with GT boxes in xyxy format
-    :param pred_boxes: Array of shape (M, 4) with predicted boxes in xyxy format
-    :return: IoA matrix of shape (N, M)
-    """
-    if len(gt_boxes) == 0 or len(pred_boxes) == 0:
-        return np.zeros((len(gt_boxes), len(pred_boxes)))
-
-    gt_boxes = np.asarray(gt_boxes, dtype=float)
-    pred_boxes = np.asarray(pred_boxes, dtype=float)
-
-    # Compute GT areas
-    gt_areas = (gt_boxes[:, 2] - gt_boxes[:, 0]) * (gt_boxes[:, 3] - gt_boxes[:, 1])
-
-    # Compute intersection
-    lt = np.maximum(gt_boxes[:, None, :2], pred_boxes[None, :, :2])
-    rb = np.minimum(gt_boxes[:, None, 2:], pred_boxes[None, :, 2:])
-    wh = np.clip(rb - lt, 0, None)
-    intersection = wh[:, :, 0] * wh[:, :, 1]
-
-    # IoA = intersection / gt_area
-    return intersection / np.clip(gt_areas[:, None], 1e-10, None)  # type: ignore[no-any-return]
-
-
 def compute_overlap_matrix(
-    gt_boxes: np.ndarray,  # shape (N, 4) xyxy
-    pred_boxes: np.ndarray,  # shape (M, 4) xyxy
+    gt_boxes: np.ndarray,  # shape (N, 4) normalized xyxy
+    pred_boxes: np.ndarray,  # shape (M, 4) normalized xyxy
+    *,
+    gt_angles: list[float | None] | None = None,
+    pred_angles: list[float | None] | None = None,
+    page_width: float = 1.0,
+    page_height: float = 1.0,
 ) -> np.ndarray:  # shape (N, M)
     """Compute bidirectional overlap matrix for merge/split tolerance.
 
@@ -143,6 +122,18 @@ def compute_overlap_matrix(
 
     gt_boxes = np.asarray(gt_boxes, dtype=float)
     pred_boxes = np.asarray(pred_boxes, dtype=float)
+
+    if any(angle not in (None, 0) for angle in (gt_angles or []) + (pred_angles or [])):
+        ioa_gt = compute_rotated_ioa_matrix(
+            gt_boxes, pred_boxes, gt_angles, pred_angles, page_width=page_width, page_height=page_height
+        )
+        ioa_pred = compute_rotated_ioa_matrix(
+            pred_boxes, gt_boxes, pred_angles, gt_angles, page_width=page_width, page_height=page_height
+        )
+        overlap = np.maximum(ioa_gt, ioa_pred.T)
+        overlap[np.any(gt_boxes[:, 2:] <= gt_boxes[:, :2], axis=1), :] = 0
+        overlap[:, np.any(pred_boxes[:, 2:] <= pred_boxes[:, :2], axis=1)] = 0
+        return overlap
 
     # Compute areas
     gt_areas = (gt_boxes[:, 2] - gt_boxes[:, 0]) * (gt_boxes[:, 3] - gt_boxes[:, 1])
