@@ -113,9 +113,9 @@ class NutrientDwsProvider(Provider):
     """Provider that parses documents via the hosted Nutrient DWS parse API."""
 
     # USD per Data Extraction credit at the Free plan pay-as-you-go rate, the
-    # common pricing basis of the leaderboard. Data Extraction credits are a
-    # separate pool from the Processor API's.
-    _DEFAULT_CREDIT_RATE_USD: float | None = 0.002832
+    # common pricing basis of the leaderboard (USD 0.001 since 2026-09-23).
+    # Data Extraction credits are a separate pool from the Processor API's.
+    _DEFAULT_CREDIT_RATE_USD: float | None = 0.001
 
     def __init__(self, provider_name: str, base_config: dict[str, Any] | None = None):
         super().__init__(provider_name, base_config)

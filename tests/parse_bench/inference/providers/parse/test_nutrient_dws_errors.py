@@ -85,17 +85,17 @@ class TestPricing(unittest.TestCase):
             return NutrientDwsProvider("nutrient_dws", {"mode": "agentic", "api_key": "test", **config})
 
     def test_default_rate_is_free_plan_payg(self) -> None:
-        self.assertEqual(self._provider().credit_rate_usd, 0.002832)
+        self.assertEqual(self._provider().credit_rate_usd, 0.001)
 
     def test_agentic_page_costs_18_credits_at_free_plan_rate(self) -> None:
         payload = {"metrics": {"pagesProcessed": 2}, "usage": {"data_extraction_credits": {"cost": 36}}}
         out = self._provider()._attach_usage(payload)
         self.assertEqual(out["credits_per_page"], 18.0)
-        self.assertAlmostEqual(out["cost_per_page_usd"], 0.050976)
-        self.assertAlmostEqual(out["cost_usd"], 0.101952)
+        self.assertAlmostEqual(out["cost_per_page_usd"], 0.018)
+        self.assertAlmostEqual(out["cost_usd"], 0.036)
 
     def test_rate_is_overridable(self) -> None:
-        self.assertEqual(self._provider(credit_rate_usd=0.001).credit_rate_usd, 0.001)
+        self.assertEqual(self._provider(credit_rate_usd=0.0012).credit_rate_usd, 0.0012)
 
 
 if __name__ == "__main__":
