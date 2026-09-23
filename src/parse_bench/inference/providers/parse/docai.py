@@ -1,4 +1,4 @@
-"""Provider for DocAI by Providus (``https://api.providus.ai``).
+"""Provider for DocAI by ProvidusAI (Providus Technologies), ``https://api.providus.ai``.
 
 Each document goes into a knowledge base named ``ParseBench`` (found by name, created on first
 use) with ``auto_parse`` on. The parse job is polled, then the two artifacts the benchmark reads
@@ -216,7 +216,7 @@ def layout_pages_from_grounding(grounding: dict[str, Any]) -> list[ParseLayoutPa
 
 @register_provider("docai")
 class DocAIProvider(Provider):
-    """Provider for DocAI via its public REST API."""
+    """Provider for DocAI (ProvidusAI) via its public REST API."""
 
     def __init__(self, provider_name: str, base_config: dict[str, Any] | None = None):
         super().__init__(provider_name, base_config)

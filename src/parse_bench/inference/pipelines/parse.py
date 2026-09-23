@@ -317,7 +317,7 @@ def register_parse_pipelines(register_fn) -> None:  # type: ignore[no-untyped-de
     )
 
     # =========================================================================
-    # DocAI (Providus) hosted parse API
+    # DocAI (ProvidusAI) hosted parse API
     # =========================================================================
     register_fn(
         PipelineSpec(
