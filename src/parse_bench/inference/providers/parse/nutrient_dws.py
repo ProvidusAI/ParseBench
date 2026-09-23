@@ -7,11 +7,16 @@ and some combinations degrade the markdown silently.
 Credits are charged per page. ``usage.data_extraction_credits.cost`` is recorded
 on ``raw_output`` as ``credits_used``; its sibling ``remainingCredits`` is not a
 running balance (the API returns ``quota - cost_of_this_request`` each call) and
-must not be summed. USD uses the Pro plan rate, overridable with
+must not be summed. USD uses the Free plan pay-as-you-go rate, the basis every
+provider on the leaderboard is priced at, overridable with
 ``NUTRIENT_DWS_CREDIT_RATE_USD``.
 
-Config: ``mode``, ``body_source``, ``base_url``, ``timeout_s``, ``retry_count``,
-``retry_delay_s``, ``api_version``, ``engine_version``. Key from ``api_key`` or
+Transient failures (408, 429, 5xx, timeouts, transport errors) are raised as
+``ProviderTransientError`` / ``ProviderRateLimitError`` on the first occurrence;
+retrying them is left to the shared runner, as for every other provider.
+
+Config: ``mode``, ``body_source``, ``base_url``, ``timeout_s``,
+``credit_rate_usd``, ``api_version``, ``engine_version``. Key from ``api_key`` or
 env NUTRIENT_DWS_API_KEY / DWS_API_KEY / NUTRIENT_DATA_EXTRACTION_API_KEY /
 DATA_EXTRACTION_API_KEY.
 """
@@ -19,7 +24,6 @@ DATA_EXTRACTION_API_KEY.
 import json
 import os
 import re
-import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -108,9 +112,10 @@ _CANONICAL_LABEL = {
 class NutrientDwsProvider(Provider):
     """Provider that parses documents via the hosted Nutrient DWS parse API."""
 
-    # USD per Data Extraction credit on the Pro plan ($500/mo for 500,000).
-    # Data Extraction credits are a separate pool from the Processor API's.
-    _DEFAULT_CREDIT_RATE_USD: float | None = 0.0012
+    # USD per Data Extraction credit at the Free plan pay-as-you-go rate, the
+    # common pricing basis of the leaderboard. Data Extraction credits are a
+    # separate pool from the Processor API's.
+    _DEFAULT_CREDIT_RATE_USD: float | None = 0.002832
 
     def __init__(self, provider_name: str, base_config: dict[str, Any] | None = None):
         super().__init__(provider_name, base_config)
@@ -148,10 +153,6 @@ class NutrientDwsProvider(Provider):
             or "https://api.nutrient.io"
         ).rstrip("/")
         self._timeout = float(os.environ.get("NUTRIENT_DWS_TIMEOUT_SECONDS") or self.base_config.get("timeout_s", 600))
-        self._retry_count = int(os.environ.get("NUTRIENT_DWS_RETRY_COUNT") or self.base_config.get("retry_count", 5))
-        self._retry_delay = float(
-            os.environ.get("NUTRIENT_DWS_RETRY_DELAY_SECONDS") or self.base_config.get("retry_delay_s", 30)
-        )
         self._api_version = self.base_config.get("api_version") or os.environ.get("NUTRIENT_DWS_API_VERSION")
         self._engine_version = self.base_config.get("engine_version") or os.environ.get("NUTRIENT_DWS_ENGINE_VERSION")
 
@@ -192,59 +193,31 @@ class NutrientDwsProvider(Provider):
         content_type = _CONTENT_TYPES.get(src.suffix.lower(), "application/octet-stream")
         instructions = self._instructions()
         url = f"{self._base_url}/extraction/parse"
-        last_detail = ""
+        files = {
+            "file": (src.name, src.read_bytes(), content_type),
+            "instructions": (None, instructions, "application/json"),
+        }
+        try:
+            response = httpx.post(url, headers=self._headers(), files=files, timeout=self._timeout)
+        except httpx.TimeoutException as e:
+            raise ProviderTransientError(f"DWS parse timeout after {self._timeout}s ({e})") from e
+        except httpx.HTTPError as e:
+            raise ProviderTransientError(f"DWS parse transport error: {e}") from e
 
-        for attempt in range(self._retry_count + 1):
-            files = {
-                "file": (src.name, src.read_bytes(), content_type),
-                "instructions": (None, instructions, "application/json"),
-            }
-            try:
-                response = httpx.post(url, headers=self._headers(), files=files, timeout=self._timeout)
-            except httpx.TimeoutException as e:
-                last_detail = f"timeout after {self._timeout}s ({e})"
-                if attempt < self._retry_count:
-                    time.sleep(self._backoff(None, attempt))
-                    continue
-                raise ProviderTransientError(f"DWS parse {last_detail}") from e
-            except httpx.HTTPError as e:
-                last_detail = repr(e)
-                if attempt < self._retry_count:
-                    time.sleep(self._backoff(None, attempt))
-                    continue
-                raise ProviderTransientError(f"DWS parse transport error: {e}") from e
+        if response.status_code == 200:
+            return response.json()
 
-            if response.status_code == 200:
-                return response.json()
-
-            body = response.text[:500]
-            # 408, 429 and 5xx are worth another attempt; anything else is the
-            # caller's fault (bad key, unsupported input) and retrying burns time.
-            # 408 is the server giving up on a slow document, not a bad request —
-            # treating it as permanent silently drops that document from the run.
-            if response.status_code == 429:
-                if attempt < self._retry_count:
-                    time.sleep(self._backoff(response, attempt))
-                    continue
-                raise ProviderRateLimitError(f"DWS parse rate limited: {body}")
-            if response.status_code == 408 or response.status_code >= 500:
-                if attempt < self._retry_count:
-                    time.sleep(self._backoff(response, attempt))
-                    continue
-                raise ProviderTransientError(f"DWS parse HTTP {response.status_code}: {body}")
-            raise ProviderPermanentError(f"DWS parse HTTP {response.status_code}: {body}")
-
-        raise ProviderTransientError(f"DWS parse retries exhausted: {last_detail}")
-
-    def _backoff(self, response: "httpx.Response | None", attempt: int) -> float:
-        if response is not None:
-            retry_after = response.headers.get("retry-after")
-            if retry_after:
-                try:
-                    return float(retry_after)
-                except ValueError:
-                    pass
-        return self._retry_delay * (2**attempt)
+        body = response.text[:500]
+        # 408, 429 and 5xx are worth another attempt; anything else is the
+        # caller's fault (bad key, unsupported input) and retrying burns time.
+        # 408 is the server giving up on a slow document, not a bad request —
+        # treating it as permanent silently drops that document from the run.
+        # The runner owns the retries, so each is raised on first occurrence.
+        if response.status_code == 429:
+            raise ProviderRateLimitError(f"DWS parse rate limited: {body}")
+        if response.status_code == 408 or response.status_code >= 500:
+            raise ProviderTransientError(f"DWS parse HTTP {response.status_code}: {body}")
+        raise ProviderPermanentError(f"DWS parse HTTP {response.status_code}: {body}")
 
     # ---- helpers -----------------------------------------------------------
     @staticmethod
