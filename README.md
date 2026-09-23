@@ -26,12 +26,12 @@ _Top 10 by Overall score. For the full sortable, filterable leaderboard, see [pa
 | 2 | LlamaParse Agentic | LlamaParse | 87.01 | 88.88 | 88.68 | 91.78 | 81.44 | 84.25 | 1.25¢ |
 | 3 | Pulse Ultra 2 | Commercial - Startup APIs | 81.60 | 90.35 | 89.70 | 87.63 | 73.97 | 66.35 | 1.50¢ |
 | 4 | LlamaParse Cost Effective | LlamaParse | 80.61 | 84.19 | 77.91 | 89.87 | 67.29 | 83.77 | 0.38¢ |
-| 5 | Anthropic Fable 5.1 | VLM - Proprietary | 78.92 | 91.52 | 67.06 | 91.19 | 76.52 | 68.3 | 16.05¢ |
-| 6 | oi-parser | Commercial - Startup APIs | 78.30 | 92.62 | 78.28 | 86.17 | 66.88 | 67.53 | — |
-| 7 | rakedoc-nano | VLM - Open Weight | 77.23 | 86.44 | 64.89 | 88.84 | 71.68 | 74.28 | — |
-| 8 | florin-parser-nano | VLM - Open Weight | 76.69 | 86.10 | 65.19 | 87.37 | 70.64 | 74.14 | — |
-| 9 | KDL-Frontier-Parser-nano | VLM - Open Weight | 76.36 | 85.56 | 63.41 | 87.19 | 66.81 | 78.84 | — |
-| 10 | Extend (2.0) | Commercial - Startup APIs | 75.33 | 84.82 | 78.31 | 84.59 | 60.31 | 68.61 | 2.50¢ |
+| 5 | anyformat (Standard) | Commercial - Startup APIs | 80.30 | 86.46 | 85.56 | 87.35 | 79.04 | 63.07 | 4.30¢ |
+| 6 | Anthropic Fable 5.1 | VLM - Proprietary | 78.92 | 91.52 | 67.06 | 91.19 | 76.52 | 68.3 | 16.05¢ |
+| 7 | oi-parser | Commercial - Startup APIs | 78.30 | 92.62 | 78.28 | 86.17 | 66.88 | 67.53 | — |
+| 8 | Anthropic Opus 5.5 | VLM - Proprietary | 78.01 | 93.86 | 64.12 | 91.81 | 77.04 | 63.2 | 5.79¢ |
+| 9 | rakedoc-nano | VLM - Open Weight | 77.23 | 86.44 | 64.89 | 88.84 | 71.68 | 74.28 | — |
+| 10 | florin-parser-nano | VLM - Open Weight | 76.69 | 86.10 | 65.19 | 87.37 | 70.64 | 74.14 | — |
 <!-- LEADERBOARD:END -->
 
 **Inclusion criteria:**
