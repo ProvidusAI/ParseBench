@@ -2165,6 +2165,10 @@ class DocAILayoutAdapter(LandingAILayoutAdapter):
         raw_output = inference_result.raw_output
         return isinstance(raw_output, dict) and raw_output.get("provider") == "docai"
 
+    def to_layout_output(self, inference_result: InferenceResult, *, page_filter: int | None = None) -> LayoutOutput:
+        out = super().to_layout_output(inference_result, page_filter=page_filter)
+        return out.model_copy(update={"model": LayoutDetectionModel.DOCAI_LAYOUT})
+
 
 @register_layout_adapter("extend_parse", priority=89)
 class ExtendLayoutAdapter(LayoutAdapter):

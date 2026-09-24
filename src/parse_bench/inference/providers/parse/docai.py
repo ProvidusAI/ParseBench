@@ -18,14 +18,21 @@ parse_options : dict
     Sent with the upload. Default ``{"redact": false}``.
 poll_seconds, request_timeout, job_timeout : float
     Seconds. Defaults 5, 120 and 1800.
+credit_rate_usd : float
+    USD per credit. Falls back to ``DOCAI_CREDIT_RATE_USD``, else the pay-as-you-go rate, 0.01.
+
+One parsed page costs one credit, so ``cost_usd`` is pages x ``credit_rate_usd``. Requests are
+single attempts: connection errors and timeouts raise ``ProviderTransientError`` and the runner
+retries. A retried document reuses its own upload (running or finished) instead of paying for a
+second parse. Uploads are named by a hash of the example id, so the service never sees it.
 
 Recommended ``--max_concurrent``: **4**, one per parse worker on the service. Extra uploads
-queue server-side and each waits for a worker inside ``job_timeout``. One parsed page costs one
-credit.
+queue server-side and each waits for a worker inside ``job_timeout``.
 """
 
 from __future__ import annotations
 
+import hashlib
 import html
 import json
 import os
@@ -56,6 +63,8 @@ from parse_bench.schemas.pipeline_io import InferenceRequest, InferenceResult, R
 from parse_bench.schemas.product import ProductType
 
 _DEFAULT_BASE_URL = "https://api.providus.ai"
+_ACTIVE = ("queued", "running", "started", "in_progress")  # public status is "running"
+_CREDIT_RATE_USD = 0.01  # pay-as-you-go price of one credit (one parsed page)
 _CONTENT_TYPES = {".pdf": "application/pdf", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg"}
 # Boxes are normalized to [0, 1]; the evaluator scales them to this frame and back.
 _VIRTUAL_PAGE_DIM = 1000.0
@@ -78,6 +87,7 @@ LABEL_MAP: dict[str, str] = {
     "image": "Picture",
     "chart": "Picture",
     "seal": "Picture",
+    "caption": "Caption",
     "figure_title": "Caption",
     "table_title": "Caption",
     "chart_title": "Caption",
@@ -214,6 +224,19 @@ def layout_pages_from_grounding(grounding: dict[str, Any]) -> list[ParseLayoutPa
     return out
 
 
+def cost_fields(grounding: dict[str, Any], credit_rate_usd: float) -> dict[str, float]:
+    """One credit per parsed page."""
+    pages = len(grounding.get("pages") or [])
+    if not pages:
+        return {}
+    return {
+        "num_pages": pages,
+        "credits_used": pages,
+        "cost_usd": pages * credit_rate_usd,
+        "cost_per_page_usd": credit_rate_usd,
+    }
+
+
 @register_provider("docai")
 class DocAIProvider(Provider):
     """Provider for DocAI (ProvidusAI) via its public REST API."""
@@ -231,8 +254,12 @@ class DocAIProvider(Provider):
         self._poll = float(self.base_config.get("poll_seconds", 5))
         self._request_timeout = float(self.base_config.get("request_timeout", 120))
         self._job_timeout = float(self.base_config.get("job_timeout", 1800))
+        self._credit_rate = float(
+            self.base_config.get("credit_rate_usd") or os.getenv("DOCAI_CREDIT_RATE_USD") or _CREDIT_RATE_USD
+        )
         self._kb_id: str | None = None
         self._kb_lock = threading.Lock()
+        self._uploads: dict[str, tuple[str, str]] = {}  # upload name -> (file_id, job_id), for retries
         self._http: Any = None
 
     def _client(self) -> Any:
@@ -264,16 +291,11 @@ class DocAIProvider(Provider):
     def _req(self, method: str, path: str, **kw: Any) -> Any:
         import httpx
 
-        for attempt in range(3):  # connection blips; the request never reached the server
-            try:
-                return self._check(self._client().request(method, path, **kw), f"{method} {path}")
-            except (httpx.ConnectError, httpx.ReadError, httpx.RemoteProtocolError) as e:
-                if attempt == 2:
-                    raise ProviderTransientError(f"DocAI {method} {path}: {e}") from e
-                time.sleep(5 * (attempt + 1))
-            except httpx.TimeoutException as e:
-                raise ProviderTransientError(f"DocAI {method} {path} timed out: {e}") from e
-        raise AssertionError("unreachable")
+        try:
+            response = self._client().request(method, path, **kw)
+        except httpx.TransportError as e:  # connection, read and timeout errors; the runner retries
+            raise ProviderTransientError(f"DocAI {method} {path}: {e}") from e
+        return self._check(response, f"{method} {path}")
 
     def _knowledge_base(self) -> str:
         """Id of the knowledge base named ``knowledge_base``; created on first use."""
@@ -290,15 +312,13 @@ class DocAIProvider(Provider):
             return self._kb_id
 
     def _existing(self, kb: str, name: str) -> tuple[str | None, str | None]:
-        """A retry that finds its own earlier upload still parsing resumes that job; a finished
-        or failed earlier copy is deleted first (filenames are unique per knowledge base)."""
+        """A copy left parsing by an earlier run is resumed; a finished or failed one is deleted
+        first (filenames are unique per knowledge base). Retries within a run use ``_uploads``."""
         for f in self._req("GET", f"/v1/files?kb_id={kb}&limit=5000").json().get("files", []):
             if f.get("filename") != name or f.get("deleted_at"):
                 continue
             jobs = self._req("GET", f"/v1/files/{f['id']}/jobs").json().get("jobs", [])
-            active = [
-                j for j in jobs if j.get("kind", "parse") == "parse" and j.get("status") in ("queued", "in_progress")
-            ]
+            active = [j for j in jobs if j.get("kind", "parse") == "parse" and j.get("status") in _ACTIVE]
             if active:
                 return f["id"], active[0]["job_id"]
             self._req("DELETE", f"/v1/files/{f['id']}")
@@ -313,8 +333,8 @@ class DocAIProvider(Provider):
             raise ProviderPermanentError(f"unsupported file type {src.suffix}")
         started = datetime.now(UTC)
         kb = self._knowledge_base()
-        name = f"{request.example_id}{src.suffix.lower()}"
-        file_id, job_id = self._existing(kb, name)
+        name = hashlib.sha256(request.example_id.encode()).hexdigest()[:16] + src.suffix.lower()
+        file_id, job_id = self._uploads.get(name) or self._existing(kb, name)
         if file_id is None:
             with src.open("rb") as fh:
                 body = self._req(
@@ -323,7 +343,9 @@ class DocAIProvider(Provider):
                     files={"file": (name, fh, ctype)},
                     data={"kb_id": kb, "auto_parse": "true", "parse_options": json.dumps(self._options)},
                 ).json()
-            file_id, job_id = body["file"]["id"], body["parse_job"]["job_id"]
+            file_id, job_id = str(body["file"]["id"]), str(body["parse_job"]["job_id"])
+        assert job_id is not None
+        self._uploads[name] = (file_id, job_id)
         deadline = time.time() + self._job_timeout
         while True:
             job = self._req("GET", f"/v1/files/{file_id}/jobs/{job_id}").json()["job"]
@@ -358,6 +380,7 @@ class DocAIProvider(Provider):
                 "grounding": grounding,
                 "usage": (job.get("result") or {}).get("usage"),
                 "options": self._options,
+                **cost_fields(grounding, self._credit_rate),
             },
             started_at=started,
             completed_at=completed,
