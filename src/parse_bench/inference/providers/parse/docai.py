@@ -26,8 +26,9 @@ single attempts: connection errors and timeouts raise ``ProviderTransientError``
 retries. A retried document reuses its own upload (running or finished) instead of paying for a
 second parse. Uploads are named by a hash of the example id, so the service never sees it.
 
-Recommended ``--max_concurrent``: **4**, one per parse worker on the service. Extra uploads
-queue server-side and each waits for a worker inside ``job_timeout``.
+Recommended ``--max_concurrent``: **8**, twice the service's four parse workers, so each
+worker has the next page queued when it finishes one. Extra uploads wait server-side inside
+``job_timeout``.
 """
 
 from __future__ import annotations

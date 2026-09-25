@@ -215,7 +215,7 @@ use) with auto-parse on; the job is polled and `result.md` plus `grounding.json`
 come back as HTML with row and column spans; grounding boxes feed the layout vertical through the
 `docai` layout adapter. Cost is one credit per parsed page at the pay-as-you-go rate of USD 0.01
 (1¢ per page); override with `credit_rate_usd` or `DOCAI_CREDIT_RATE_USD`. Sign up at
-https://platform.providus.ai. Recommended `--max_concurrent 4`.
+https://platform.providus.ai. Recommended `--max_concurrent 8`.
 
 | Pipeline | Description | Env Vars |
 |---|---|---|
