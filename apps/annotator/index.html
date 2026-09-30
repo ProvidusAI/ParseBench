@@ -1,0 +1,758 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ParseBench Annotator</title>
+    <link rel="icon" type="image/x-icon" href="/static/llamaindex-favicon.ico">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/suneditor@2.47.8/dist/css/suneditor.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/mathlive/mathlive-static.css">
+    <link rel="stylesheet" href="/static/annotator.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar: File Queue -->
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <div class="sidebar-header-top">
+                    <h2 class="app-brand">
+                        <img src="/static/llamaindex-favicon.ico" alt="" aria-hidden="true">
+                        <span>ParseBench <strong>Annotator</strong></span>
+                    </h2>
+                    <button id="sidebar-close" class="btn btn-icon" title="Collapse sidebar ([)">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="11 17 6 12 11 7"/>
+                            <line x1="6" y1="12" x2="18" y2="12"/>
+                        </svg>
+                    </button>
+                </div>
+                <div class="queue-stats">
+                    <span class="stat pending" title="Pending"><span id="stat-pending">0</span> pending</span>
+                    <span class="stat completed" title="Completed"><span id="stat-completed">0</span> done</span>
+                </div>
+            </div>
+
+            <div class="queue-tools-section collapsed" id="queue-tools-section">
+                <button id="queue-tools-toggle" class="queue-tools-toggle" type="button" aria-expanded="false">
+                    <span class="queue-tools-title">
+                        <span class="queue-tools-fold" id="queue-tools-fold">▶</span>
+                        Queue tools
+                    </span>
+                    <span class="queue-tools-summary" id="queue-tools-summary">Select directory</span>
+                </button>
+                <div class="queue-tools-body" id="queue-tools-body">
+                    <!-- Directory selector -->
+                    <div class="directory-selector">
+                        <button id="select-dir-btn" class="btn btn-secondary btn-full">
+                            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                                <path d="M1 3.5A1.5 1.5 0 0 1 2.5 2h2.764c.958 0 1.76.56 2.311 1.184C7.985 3.648 8.48 4 9 4h4.5A1.5 1.5 0 0 1 15 5.5v7a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 1 12.5v-9z"/>
+                            </svg>
+                            <span id="current-dir-label">Select Directory...</span>
+                        </button>
+                        <div class="current-dir-path" id="current-dir-path" title=""></div>
+                    </div>
+
+                    <div class="queue-controls">
+                        <button id="refresh-queue" class="btn btn-secondary btn-sm">Refresh</button>
+                        <button id="add-files-btn" class="btn btn-secondary btn-sm">+ Add Files</button>
+                        <button id="export-btn" class="btn btn-primary btn-sm">Export</button>
+                    </div>
+
+                    <div class="queue-search">
+                        <div class="queue-search-row">
+                            <input type="search" id="file-search-input" class="queue-search-input" placeholder="Search files across folders">
+                            <button id="file-search-clear" class="btn btn-xs btn-ghost" type="button">Clear</button>
+                        </div>
+                        <div class="queue-search-status" id="file-search-status"></div>
+                    </div>
+                </div>
+            </div>
+            <input type="file" id="file-input" multiple accept=".pdf,.png,.jpg,.jpeg,.jfif" style="display: none;">
+
+            <!-- Batch selection controls -->
+            <div class="batch-select-controls" id="batch-select-controls">
+                <button id="select-untested-btn" class="btn btn-xs btn-ghost" title="Select all files without tests">
+                    Select untested
+                </button>
+                <span class="batch-select-divider">|</span>
+                <button id="clear-selection-btn" class="btn btn-xs btn-ghost" title="Clear selection">
+                    Clear
+                </button>
+                <span class="batch-select-count" id="batch-select-count"></span>
+            </div>
+
+            <div class="file-list" id="file-list">
+                <!-- Files will be populated here -->
+            </div>
+
+            <!-- Drop zone overlay -->
+            <div class="drop-zone" id="drop-zone">
+                <div class="drop-zone-content">
+                    <svg width="48" height="48" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM14 13v4h-4v-4H7l5-5 5 5h-3z"/>
+                    </svg>
+                    <p>Drop files here to add to queue</p>
+                    <span class="drop-zone-hint">PDF, PNG, JPG supported</span>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Sidebar Toggle (shown when sidebar is collapsed) -->
+        <button id="sidebar-toggle" class="sidebar-toggle" title="Open Annotation Queue">
+            <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor">
+                <path d="M1 3.5A1.5 1.5 0 0 1 2.5 2h2.764c.958 0 1.76.56 2.311 1.184C7.985 3.648 8.48 4 9 4h4.5A1.5 1.5 0 0 1 15 5.5v7a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 1 12.5v-9z"/>
+            </svg>
+        </button>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Split Pane: PDF Viewer, AI Panel, and Test Editor -->
+            <div class="split-pane">
+                <!-- PDF Viewer -->
+                <div class="pdf-panel">
+                    <div class="pdf-controls" id="pdf-controls">
+                        <button id="pdf-controls-toggle" class="btn btn-sm btn-icon pdf-controls-toggle" type="button" aria-expanded="true" aria-controls="pdf-tool-row" title="Collapse PDF controls">
+                            <svg class="collapse-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="m6 9 6 6 6-6"/>
+                            </svg>
+                            <span>Tools</span>
+                        </button>
+                        <div class="pdf-control-content" id="pdf-control-content">
+                            <div class="file-workflow-bar top-bar" id="file-workflow-bar">
+                                <div class="file-info">
+                                    <h1 id="current-file-name">Select a file to start</h1>
+                                    <div class="file-metadata">
+                                        <span class="file-group" id="current-file-group"></span>
+                                        <div class="file-tags" id="current-file-tags"></div>
+                                    </div>
+                                </div>
+                                <div class="navigation-controls">
+                                    <button id="prev-file" class="btn btn-secondary" disabled>
+                                        <span class="kbd">K</span> Previous
+                                    </button>
+                                    <button id="skip-file" class="btn btn-warning" disabled>
+                                        <span class="kbd">D</span> Skip
+                                    </button>
+                                    <button id="complete-file" class="btn btn-success" disabled>
+                                        <span class="kbd">⏎</span> Done
+                                    </button>
+                                    <button id="rename-file" class="btn btn-secondary btn-sm" title="Rename file (R)" disabled>
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                            <path d="M12 20h9"/>
+                                            <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>
+                                        </svg>
+                                    </button>
+                                    <button id="delete-file" class="btn btn-danger btn-sm" title="Delete file (Shift+D)" disabled>
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                            <path d="M3 6h18"/>
+                                            <path d="M8 6V4h8v2"/>
+                                            <path d="M19 6l-1 14H6L5 6"/>
+                                            <path d="M10 11v5"/>
+                                            <path d="M14 11v5"/>
+                                        </svg>
+                                    </button>
+                                    <button id="next-file" class="btn btn-secondary" disabled>
+                                        Next <span class="kbd">J</span>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="pdf-tool-row" id="pdf-tool-row">
+                                <button id="prev-page" class="btn btn-sm">&#9664; Prev</button>
+                                <span class="page-info">
+                                    Page <span id="page-num">1</span> / <span id="page-count">1</span>
+                                </span>
+                                <button id="next-page" class="btn btn-sm">Next &#9654;</button>
+                                <span class="zoom-controls">
+                                    <button id="zoom-out" class="btn btn-sm">-</button>
+                                    <span id="zoom-level">100%</span>
+                                    <button id="zoom-in" class="btn btn-sm">+</button>
+                                    <button id="zoom-fit" class="btn btn-sm" title="Fit to window">Fit</button>
+                                </span>
+                                <button id="extract-page" class="btn btn-sm btn-primary" title="Extract current page as new file (X)" disabled>
+                                    <span class="kbd">X</span> Extract Page
+                                </button>
+                                <span class="controls-divider"></span>
+                                <button id="ai-select-btn" class="btn btn-sm btn-ai" title="Draw region for AI analysis (A)">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <rect x="3" y="3" width="18" height="18" rx="2" stroke-dasharray="4 2"/>
+                                        <circle cx="12" cy="12" r="3"/>
+                                    </svg>
+                                    <span class="kbd">A</span> AI Select
+                                </button>
+                                <button id="markdown-preview-btn" class="btn btn-sm" title="Toggle Reading Order Panel (M)" disabled>
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                                        <polyline points="14 2 14 8 20 8"/>
+                                        <line x1="16" y1="13" x2="8" y2="13"/>
+                                        <line x1="16" y1="17" x2="8" y2="17"/>
+                                    </svg>
+                                    <span class="kbd">M</span> Reading Order
+                                </button>
+                                <button id="layout-overlay-btn" class="btn btn-sm btn-toggle active" title="Toggle layout bounding boxes (L)" disabled>
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <rect x="4" y="4" width="16" height="16" rx="2"/>
+                                        <path d="M4 10h16"/>
+                                        <path d="M10 4v16"/>
+                                    </svg>
+                                    <span class="kbd">L</span> <span id="layout-overlay-label">BBoxes On</span>
+                                </button>
+                                <button id="label-names-toggle-btn" class="btn btn-sm btn-toggle active" title="Show/hide bbox label names">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M4 7h16"/>
+                                        <path d="M4 12h10"/>
+                                        <path d="M4 17h16"/>
+                                    </svg>
+                                    <span id="label-names-toggle-label">Labels On</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="pdf-container" id="pdf-container">
+                        <div class="pdf-placeholder" id="pdf-placeholder">
+                            <p>Select a file from the queue to preview</p>
+                        </div>
+                        <div id="pdf-wrapper" class="pdf-wrapper">
+                            <canvas id="pdf-canvas"></canvas>
+                            <div id="text-layer" class="text-layer"></div>
+                            <!-- AI Selection Overlay -->
+                            <canvas id="selection-canvas" class="selection-canvas"></canvas>
+                            <div id="selection-box" class="selection-box" style="display: none;"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Resizer (PDF ↔ Markdown) - hidden when markdown panel is hidden -->
+                <div class="resizer" id="resizer-pdf" style="display: none;"></div>
+
+                <!-- Reading Order Panel -->
+                <div class="markdown-panel" id="markdown-panel" style="display: none;">
+                    <div class="markdown-panel-header">
+                        <h3>Reading Order</h3>
+                        <div class="markdown-panel-actions">
+                            <button id="generate-expected-md-btn" class="btn btn-sm btn-secondary" title="Generate expected_markdown from layout contents">
+                                Generate Expected
+                            </button>
+                            <button id="markdown-panel-close" class="btn btn-icon" title="Close">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <line x1="18" y1="6" x2="6" y2="18"/>
+                                    <line x1="6" y1="6" x2="18" y2="18"/>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="markdown-content" id="markdown-content">
+                        <!-- Rendered markdown blocks go here -->
+                    </div>
+                </div>
+
+                <!-- AI Assistant Sidebar (Collapsible) -->
+                <div class="ai-sidebar" id="ai-sidebar">
+                    <div class="ai-sidebar-header">
+                        <h3>
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+                            </svg>
+                            AI Assistant
+                        </h3>
+                        <div class="ai-sidebar-actions">
+                            <button id="ai-settings-btn" class="btn btn-icon" title="AI Settings">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <circle cx="12" cy="12" r="3"/>
+                                    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+                                </svg>
+                            </button>
+                            <button id="ai-sidebar-close" class="btn btn-icon" title="Close AI Panel">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <line x1="18" y1="6" x2="6" y2="18"/>
+                                    <line x1="6" y1="6" x2="18" y2="18"/>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="ai-sidebar-content">
+                        <!-- Selection Controls -->
+                        <div class="ai-section">
+                            <div class="ai-section-label">Region</div>
+                            <div class="ai-selection-buttons">
+                                <button id="ai-full-page-btn" class="btn btn-sm btn-toggle active">
+                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <rect x="3" y="3" width="18" height="18" rx="2"/>
+                                    </svg>
+                                    Full Page
+                                </button>
+                                <button id="ai-draw-region-btn" class="btn btn-sm btn-toggle">
+                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <rect x="3" y="3" width="18" height="18" rx="2" stroke-dasharray="4 2"/>
+                                    </svg>
+                                    Draw Region
+                                </button>
+                            </div>
+                            <div class="ai-selection-info">
+                                <span id="ai-selection-status" class="ai-selection-status">Full page</span>
+                                <button id="ai-clear-selection-btn" class="btn btn-xs btn-ghost" style="display: none;">Clear</button>
+                            </div>
+                        </div>
+
+                        <!-- Custom Prompt (Optional) -->
+                        <div class="ai-section">
+                            <div class="ai-section-label">
+                                Additional Instructions
+                                <span class="ai-label-hint">(optional)</span>
+                            </div>
+                            <textarea id="ai-custom-prompt" class="ai-custom-prompt"
+                                placeholder="e.g., Focus on table data, ignore headers..."></textarea>
+                        </div>
+
+                        <!-- Test Count Slider -->
+                        <div class="ai-section">
+                            <div class="ai-section-label">
+                                Tests to Generate
+                                <span class="ai-slider-value" id="ai-test-count-value">4</span>
+                            </div>
+                            <input type="range" id="ai-test-count-slider" class="ai-slider"
+                                min="1" max="10" value="4" step="1">
+                        </div>
+
+                        <!-- Parse.md Context (shown when available) -->
+                        <div class="ai-section ai-parse-md-section" id="parse-md-section" style="display: none;">
+                            <label class="ai-checkbox-item ai-parse-md-checkbox">
+                                <input type="checkbox" id="use-parse-md" checked>
+                                <span class="parse-md-label">Use parse.md context</span>
+                            </label>
+                        </div>
+
+                        <!-- Action Buttons -->
+                        <div class="ai-section">
+                            <div class="ai-section-label">Actions</div>
+                            <div class="ai-action-buttons">
+                                <button id="ai-extract-text-btn" class="btn btn-action" title="Extract text/markdown from region">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                                        <polyline points="14 2 14 8 20 8"/>
+                                        <line x1="16" y1="13" x2="8" y2="13"/>
+                                        <line x1="16" y1="17" x2="8" y2="17"/>
+                                    </svg>
+                                    Extract Text
+                                </button>
+                                <button id="ai-generate-tests-btn" class="btn btn-action" title="Generate test rules from region">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M9 11l3 3L22 4"/>
+                                        <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
+                                    </svg>
+                                    Generate Tests
+                                </button>
+                                <!-- Test Types (inline expandable) -->
+                                <div class="test-types-inline" id="test-types-inline">
+                                    <div class="test-types-toggle" id="test-types-toggle">
+                                        <span class="fold-arrow" id="fold-arrow">▶</span> Test types <span id="test-types-summary">(4)</span>
+                                    </div>
+                                    <div class="test-types-legend" id="test-types-legend" style="display: none;">
+                                        AI-available types are selectable. Manual-only types are listed for reference.
+                                    </div>
+                                    <div class="test-types-checkboxes" id="test-types-checkboxes" style="display: none;">
+                                        <!-- populated dynamically -->
+                                    </div>
+                                </div>
+                                <button id="ai-review-tests-btn" class="btn btn-action" title="Review existing tests against document">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <circle cx="11" cy="11" r="8"/>
+                                        <path d="M21 21l-4.35-4.35"/>
+                                    </svg>
+                                    Review Tests
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Results Container -->
+                        <div id="ai-results-container" class="ai-results-container" style="display: none;">
+                            <div class="ai-results-header">
+                                <span>Extracted Text</span>
+                                <div class="ai-results-actions">
+                                    <button id="ai-copy-btn" class="btn btn-xs btn-secondary" title="Copy to clipboard">
+                                        Copy
+                                    </button>
+                                </div>
+                            </div>
+                            <textarea id="ai-result-text" class="ai-result-text" readonly placeholder="AI results will appear here..."></textarea>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- AI Sidebar Toggle (shown when sidebar is collapsed) -->
+                <button id="ai-sidebar-toggle" class="ai-sidebar-toggle" title="Open AI Assistant (A)">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+                    </svg>
+                </button>
+
+                <!-- Resizer (AI Sidebar ↔ Test Panel) -->
+                <div class="resizer" id="resizer-test"></div>
+
+                <!-- Test Editor Panel -->
+                <div class="test-panel" id="test-panel">
+                    <div class="test-panel-header">
+                        <div class="test-panel-header-left">
+                            <button id="test-panel-close" class="btn btn-icon" title="Collapse test panel (])">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <polyline points="13 17 18 12 13 7"/>
+                                    <line x1="6" y1="12" x2="18" y2="12"/>
+                                </svg>
+                            </button>
+                            <div class="test-panel-title">
+                                <h2>Test Rules</h2>
+                                <span class="test-count">(<span id="test-count">0</span>)</span>
+                            </div>
+                        </div>
+                        <div class="annotation-mode-toggle" id="annotation-mode-toggle">
+                            <button id="annotation-mode-parse" class="btn btn-xs btn-secondary active" title="Parse rule annotation mode">
+                                Parse
+                            </button>
+                            <button id="annotation-mode-extract" class="btn btn-xs btn-secondary" title="Extract key-value annotation mode">
+                                Extract KV
+                            </button>
+                        </div>
+                        <div class="test-panel-actions">
+                            <button id="verify-all-tests-btn" class="btn btn-xs btn-success" title="Verify all tests">
+                                ✓ Verify All
+                            </button>
+                            <button id="clear-all-tests-btn" class="btn btn-xs btn-danger" title="Clear all tests">
+                                Clear All
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="document-tags-section" id="document-tags-section">
+                        <div class="document-tags-header">
+                            <button id="document-tags-toggle" class="document-tags-toggle" type="button" aria-expanded="true" aria-controls="document-tags-body" title="Collapse document tags">
+                                <svg class="collapse-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="m6 9 6 6 6-6"/>
+                                </svg>
+                                <span class="document-tags-copy">
+                                    <span class="document-tags-title">Document Tags</span>
+                                    <span class="document-tags-help">Top-level tags preserved on this file for provenance and filtering.</span>
+                                </span>
+                            </button>
+                            <span class="document-tags-meta" id="document-tags-meta">No tags</span>
+                        </div>
+                        <div class="document-tags-body" id="document-tags-body">
+                            <div class="document-tags-editor" id="document-tags-editor"></div>
+                        </div>
+                    </div>
+
+                    <!-- Add Test Form -->
+                    <div class="add-test-section" id="add-test-section">
+                        <div class="add-test-header">
+                            <button type="button" class="add-test-toggle" id="add-test-toggle" aria-expanded="true" aria-controls="add-test-body" title="Collapse add test">
+                                <svg class="collapse-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                    <path d="M6 9l6 6 6-6"></path>
+                                </svg>
+                                <span class="add-test-copy">
+                                    <span class="add-test-title">Add Test</span>
+                                    <span class="add-test-summary" id="add-test-summary">Select rule type</span>
+                                </span>
+                            </button>
+                        </div>
+                        <div class="add-test-body" id="add-test-body">
+                            <div class="test-type-selector">
+                                <label for="test-type-select">Rule type:</label>
+                                <div class="test-type-selector-controls">
+                                    <div class="test-type-filter-row">
+                                        <input type="text" id="test-type-filter" class="test-type-filter-input" placeholder="Filter rule types (e.g. table, rotate, bold)">
+                                        <button type="button" id="test-type-filter-clear" class="btn btn-xs btn-ghost">Clear</button>
+                                    </div>
+                                    <select id="test-type-select">
+                                        <option value="">-- Select type --</option>
+                                        <option value="present">Present (text must exist)</option>
+                                        <option value="absent">Absent (text must NOT exist)</option>
+                                        <option value="order">Order (A before B)</option>
+                                        <option value="table">Table (cell relationships)</option>
+                                        <option value="chart_data_point">Chart Data Point (orientation-invariant)</option>
+                                        <option value="layout">Layout (bounding box with class)</option>
+                                        <option value="__raw_json__">Raw JSON (custom / unknown)</option>
+                                    </select>
+                                    <div class="test-type-select-meta" id="test-type-select-meta"></div>
+                                </div>
+                            </div>
+
+                            <!-- Dynamic form container -->
+                            <div id="test-form-container" class="test-form-container">
+                                <!-- Forms will be inserted here based on selection -->
+                            </div>
+                        </div>
+                    </div>
+
+                    <section class="table-editor-shell" id="table-editor-shell" hidden>
+                        <div class="table-editor-header">
+                            <div class="table-editor-header-copy">
+                                <h3 id="table-editor-title">Edit Table</h3>
+                                <div class="table-editor-context" id="table-editor-context"></div>
+                            </div>
+                            <div class="table-editor-header-actions">
+                                <button id="table-editor-close" class="btn btn-xs btn-ghost" type="button">Close</button>
+                            </div>
+                        </div>
+
+                        <div class="table-editor-status" id="table-editor-status"></div>
+
+                        <div class="table-editor-surroundings" id="table-editor-surroundings" hidden>
+                            <div class="table-editor-context-block" id="table-editor-prefix-block" hidden>
+                                <div class="table-editor-context-label">Text before table</div>
+                                <div class="table-editor-context-preview" id="table-editor-prefix-preview"></div>
+                            </div>
+                            <div class="table-editor-context-block" id="table-editor-suffix-block" hidden>
+                                <div class="table-editor-context-label">Text after table</div>
+                                <div class="table-editor-context-preview" id="table-editor-suffix-preview"></div>
+                            </div>
+                        </div>
+
+                        <div class="table-editor-body">
+                            <div class="table-editor-root" id="table-editor-root"></div>
+                            <textarea class="table-editor-raw" id="table-editor-raw" hidden spellcheck="false"></textarea>
+                        </div>
+
+                        <div class="table-editor-actions">
+                            <div class="table-editor-actions-copy" id="table-editor-mode-hint"></div>
+                            <div class="table-editor-actions-buttons">
+                                <button id="table-editor-raw-toggle" class="btn btn-secondary" type="button">Raw HTML</button>
+                                <button id="table-editor-cancel" class="btn btn-secondary" type="button">Cancel</button>
+                                <button id="table-editor-save" class="btn btn-success" type="button">Save</button>
+                            </div>
+                        </div>
+                    </section>
+
+                    <section class="formula-editor-shell" id="formula-editor-shell" hidden>
+                        <div class="formula-editor-header">
+                            <div class="formula-editor-header-copy">
+                                <h3 id="formula-editor-title">Edit Formula</h3>
+                                <div class="formula-editor-context" id="formula-editor-context"></div>
+                            </div>
+                            <div class="formula-editor-header-actions">
+                                <button id="formula-editor-close" class="btn btn-xs btn-ghost" type="button">Close</button>
+                            </div>
+                        </div>
+
+                        <div class="formula-editor-status" id="formula-editor-status"></div>
+
+                        <div class="formula-editor-body">
+                            <div class="formula-editor-root" id="formula-editor-root"></div>
+                            <textarea class="formula-editor-raw" id="formula-editor-raw" hidden spellcheck="false"></textarea>
+                        </div>
+
+                        <div class="formula-editor-actions">
+                            <div class="formula-editor-actions-copy" id="formula-editor-mode-hint"></div>
+                            <div class="formula-editor-actions-buttons">
+                                <button id="formula-editor-raw-toggle" class="btn btn-secondary" type="button">Raw LaTeX</button>
+                                <button id="formula-editor-cancel" class="btn btn-secondary" type="button">Cancel</button>
+                                <button id="formula-editor-save" class="btn btn-success" type="button">Save</button>
+                            </div>
+                        </div>
+                    </section>
+
+                    <div class="rule-list-filters" id="rule-list-filters">
+                        <div class="rule-list-filter-row">
+                            <select id="rule-type-filter-select" class="rule-type-filter-select">
+                                <option value="">All rule types</option>
+                            </select>
+                            <select id="rule-granularity-filter-select" class="rule-type-filter-select" title="Filter layout rules by granularity">
+                                <option value="region">Regions</option>
+                                <option value="line">Lines</option>
+                                <option value="word">Words</option>
+                                <option value="checkbox">Checkboxes</option>
+                                <option value="">All granularities</option>
+                            </select>
+                            <input type="text" id="rule-tag-filter-input" class="rule-tag-filter-input" placeholder="Filter by tag (comma-separated)">
+                            <button type="button" id="rule-list-filter-clear" class="btn btn-xs btn-ghost">Clear</button>
+                        </div>
+                    </div>
+
+                    <!-- Test List -->
+                    <div class="test-list" id="test-list">
+                        <p class="empty-state">No tests defined yet. Add a test above.</p>
+                    </div>
+
+                    <!-- Expected Markdown (optional) -->
+                    <div class="expected-markdown-section" id="expected-markdown-section">
+                        <details>
+                            <summary>Expected Markdown (optional)</summary>
+                            <textarea id="expected-markdown" placeholder="Paste expected markdown output here..."></textarea>
+                        </details>
+                    </div>
+
+                    <!-- Extract KV editor -->
+                    <div class="extract-editor-section" id="extract-editor-section" style="display: none;">
+                        <div class="extract-editor-header">
+                            <div class="extract-editor-title">Extract Fields</div>
+                            <div class="extract-editor-actions">
+                                <button id="extract-add-row" class="btn btn-xs btn-secondary">+ Add field</button>
+                                <button id="extract-save" class="btn btn-xs btn-success">Save Extract Fields</button>
+                            </div>
+                        </div>
+                        <div class="extract-field-filter-bar" id="extract-field-filter-bar">
+                            <label for="extract-field-filter-select" class="extract-field-filter-label">Show:</label>
+                            <select id="extract-field-filter-select" class="extract-field-filter-select">
+                                <option value="all">All</option>
+                                <option value="verified">Verified</option>
+                                <option value="unverified">Needs review</option>
+                            </select>
+                            <label class="extract-page-filter-toggle" title="Show only fields with bounding boxes on the current page">
+                                <input type="checkbox" id="extract-page-filter-toggle">
+                                <span>Per page</span>
+                            </label>
+                            <span class="extract-page-filter-meta" id="extract-page-filter-meta"></span>
+                        </div>
+                        <div class="extract-editor-tree-wrap">
+                            <div class="extract-editor-tree" id="extract-kv-rows">
+                                <!-- tree nodes inserted dynamically -->
+                            </div>
+                        </div>
+                        <details class="extract-config-details">
+                            <summary>Advanced: config (JSON, optional)</summary>
+                            <textarea id="extract-config-json" placeholder='{"extraction_mode":"MULTIMODAL"}'></textarea>
+                            <div class="extract-editor-help">
+                                Values are serialized into <code>expected_output</code> and types/required flags into
+                                <code>data_schema</code>.
+                            </div>
+                        </details>
+                    </div>
+                </div>
+
+                <!-- Test Panel Toggle (shown when panel is collapsed) -->
+                <button id="test-panel-toggle" class="test-panel-toggle" title="Open Test Rules (])">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M9 11l3 3L22 4"/>
+                        <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
+                    </svg>
+                </button>
+            </div>
+        </main>
+    </div>
+
+    <!-- Export Modal -->
+    <div class="modal" id="export-modal">
+        <div class="modal-content">
+            <h2>Export Dataset</h2>
+            <div class="export-path-info">
+                <span class="export-path-label">Export to:</span>
+                <code id="export-base-path"></code>
+            </div>
+            <div class="form-group">
+                <label for="dataset-name">Dataset Name:</label>
+                <input type="text" id="dataset-name" value="annotated_dataset" placeholder="my_dataset">
+            </div>
+            <div class="export-full-path">
+                <span class="export-path-label">Full path:</span>
+                <code id="export-full-path"></code>
+            </div>
+            <div class="form-group">
+                <label>
+                    <input type="checkbox" id="include-skipped">
+                    Include skipped files
+                </label>
+            </div>
+            <div class="modal-actions">
+                <button id="cancel-export" class="btn btn-secondary">Cancel</button>
+                <button id="confirm-export" class="btn btn-primary">Export</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Directory Browser Modal -->
+    <div class="modal" id="browse-modal">
+        <div class="modal-content modal-browse">
+            <div class="modal-header">
+                <h2>Select Queue Directory</h2>
+                <button class="modal-close" id="close-browse">&times;</button>
+            </div>
+            <div class="browse-path-bar">
+                <button id="browse-up" class="btn btn-sm" title="Go up">
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+                        <path d="M8 12a.5.5 0 0 0 .5-.5V5.707l2.146 2.147a.5.5 0 0 0 .708-.708l-3-3a.5.5 0 0 0-.708 0l-3 3a.5.5 0 1 0 .708.708L7.5 5.707V11.5a.5.5 0 0 0 .5.5z"/>
+                    </svg>
+                </button>
+                <input type="text" id="browse-path-input" class="browse-path-input" placeholder="/path/to/directory">
+                <button id="browse-go" class="btn btn-sm btn-primary">Go</button>
+            </div>
+            <div class="browse-list" id="browse-list">
+                <!-- Directory listing will be populated here -->
+            </div>
+            <div class="modal-actions">
+                <button id="cancel-browse" class="btn btn-secondary">Cancel</button>
+                <button id="confirm-browse" class="btn btn-success">Select This Directory</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- AI Settings Modal -->
+    <div class="modal" id="ai-settings-modal">
+        <div class="modal-content modal-settings">
+            <div class="modal-header">
+                <h2>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="3"/>
+                        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+                    </svg>
+                    AI Settings
+                </h2>
+                <button class="modal-close" id="ai-cancel-settings-btn">&times;</button>
+            </div>
+
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="ai-api-key-input">Google API Key</label>
+                    <input type="password" id="ai-api-key-input" class="form-input"
+                           placeholder="Enter your Google API key">
+                    <p class="form-hint">
+                        Get an API key from <a href="https://aistudio.google.com/apikey" target="_blank">Google AI Studio</a>.
+                        Leave empty to use GOOGLE_GEMINI_API_KEY environment variable.
+                    </p>
+                </div>
+
+                <div class="form-group">
+                    <label for="ai-model-select">Model</label>
+                    <select id="ai-model-select" class="form-select">
+                        <option value="gemini-3-flash-preview">gemini-3-flash-preview (default)</option>
+                        <option value="gemini-3-pro-preview">gemini-3-pro-preview</option>
+                        <option value="gemini-2.5-flash">gemini-2.5-flash</option>
+                        <option value="gemini-2.5-pro">gemini-2.5-pro</option>
+                        <option value="gemini-2.0-flash">gemini-2.0-flash</option>
+                        <option value="gemini-1.5-pro">gemini-1.5-pro</option>
+                        <option value="gemini-1.5-flash">gemini-1.5-flash</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <button id="ai-test-connection-btn" class="btn btn-secondary">
+                        Test Connection
+                    </button>
+                </div>
+            </div>
+
+            <div class="modal-actions">
+                <button id="ai-cancel-settings-btn-footer" class="btn btn-secondary" onclick="closeAiSettingsModal()">Cancel</button>
+                <button id="ai-save-settings-btn" class="btn btn-success">Save Settings</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast notifications -->
+    <div class="toast-container" id="toast-container"></div>
+
+    <script src="https://cdn.jsdelivr.net/npm/suneditor@2.47.8/dist/suneditor.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mathlive"></script>
+    <script src="/static/reading_order.js"></script>
+    <script src="/static/save_coordinator.js"></script>
+    <script src="/static/layout_attributes.js"></script>
+    <script src="/static/rule_tags.js"></script>
+    <script src="/static/layout_pages.js"></script>
+    <script src="/static/table_editor_utils.js"></script>
+    <script src="/static/table_editor_adapter.js"></script>
+    <script src="/static/formula_editor_utils.js"></script>
+    <script src="/static/formula_editor_adapter.js"></script>
+    <script src="/static/extract_field_hash.js"></script>
+    <script src="/static/bbox_drag_helpers.js"></script>
+    <script src="/static/annotator.js"></script>
+</body>
+</html>

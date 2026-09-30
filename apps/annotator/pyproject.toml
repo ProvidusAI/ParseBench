@@ -1,0 +1,15 @@
+[project]
+name = "parsebench-annotator"
+version = "0.1.0"
+description = "Local annotation app for ParseBench evaluation test cases"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "flask>=3.0.0",
+    "pypdf>=4.0.0",
+    "google-genai>=1.0.0",
+    "python-dotenv>=1.0.0",
+]
+
+[project.scripts]
+annotator = "serve:main"

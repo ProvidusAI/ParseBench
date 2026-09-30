@@ -1,0 +1,400 @@
+"""Concrete layout label mappers."""
+
+from __future__ import annotations
+
+from typing import Any
+
+from parse_bench.evaluation.layout_label_mappers.base import (
+    LayoutLabelMapper,
+    MappingContext,
+)
+from parse_bench.evaluation.layout_label_mappers.registry import register_layout_label_mapper
+from parse_bench.inference.providers.layoutdet.adapters import (
+    ChandraLayoutDetLabelAdapter,
+    ChunkrLayoutDetLabelAdapter,
+    DoclingLayoutDetLabelAdapter,
+    DotsOcrLayoutDetLabelAdapter,
+    LayoutV3LabelAdapter,
+    PPLayoutDetLabelAdapter,
+    Qwen3VLLayoutDetLabelAdapter,
+    SuryaLayoutDetLabelAdapter,
+    YoloLayoutDetLabelAdapter,
+)
+from parse_bench.layout_label_mapping import (
+    UnknownRawLayoutLabelError,
+    detect_llamaparse_label_version,
+    map_docling_raw_label_to_canonical,
+    map_llamaparse_raw_label_to_canonical,
+)
+from parse_bench.schemas.layout_detection_output import (
+    LayoutDetectionModel,
+    LayoutPrediction,
+)
+from parse_bench.schemas.layout_ontology import CanonicalLabel
+
+
+def _parse_int_label(label: str, model: LayoutDetectionModel) -> int:
+    try:
+        return int(label)
+    except ValueError as exc:
+        raise UnknownRawLayoutLabelError(
+            f"Expected integer layout label for model '{model.value}', got '{label}'"
+        ) from exc
+
+
+@register_layout_label_mapper("__default__", priority=-100)
+class CanonicalPassthroughMapper(LayoutLabelMapper):
+    """Fallback mapper for already-canonical labels."""
+
+    def to_canonical(
+        self,
+        label: str,
+        prediction: LayoutPrediction,
+        context: MappingContext,
+    ) -> CanonicalLabel:
+        del prediction, context
+        try:
+            return CanonicalLabel(label)
+        except ValueError as exc:
+            raise UnknownRawLayoutLabelError(f"Unknown raw layout label '{label}' and no mapper was resolved") from exc
+
+
+@register_layout_label_mapper(
+    "hunyuanocr",
+    "model:hunyuanocr_layout",
+    priority=95,
+)
+class HunyuanOcrLabelMapper(CanonicalPassthroughMapper):
+    """Pass through the Canonical17 labels emitted by HunyuanOCR normalization."""
+
+
+@register_layout_label_mapper(
+    "llamaparse",
+    "model:llamaparse",
+    priority=100,
+)
+class LlamaParseRawLabelMapper(LayoutLabelMapper):
+    """Mapper for LlamaParse raw labels from `layoutAwareBbox[*].label`."""
+
+    def _resolve_label_version(self, context: MappingContext) -> str:
+        if context.raw_label_version:
+            return context.raw_label_version
+        labels = [pred.label for pred in context.layout_output.predictions if pred.label]
+        return detect_llamaparse_label_version(labels)
+
+    @staticmethod
+    def _already_canonical(label: str) -> CanonicalLabel | None:
+        """Return the Canonical17 member when ``label`` is already canonical.
+
+        The LlamaParse normalizer rewrites ``layout_pages[*].items[*].type`` to
+        Canonical17 strings, so canonical labels can reach the mapper alongside
+        raw ``layoutAwareBbox`` labels; they map to themselves.
+        """
+        try:
+            return CanonicalLabel(label)
+        except ValueError:
+            return None
+
+    def should_include_prediction(
+        self,
+        prediction: LayoutPrediction,
+        context: MappingContext,
+    ) -> bool:
+        version = self._resolve_label_version(context)
+        # Preserve historical parity with prior evaluator behavior.
+        return not (version == "v2" and prediction.label == "heading")
+
+    def to_canonical(
+        self,
+        label: str,
+        prediction: LayoutPrediction,
+        context: MappingContext,
+    ) -> CanonicalLabel:
+        del prediction
+        if (canonical_label := self._already_canonical(label)) is not None:
+            return canonical_label
+        version = self._resolve_label_version(context)
+        canonical, _attrs = map_llamaparse_raw_label_to_canonical(label, label_version=version)
+        return canonical
+
+
+@register_layout_label_mapper("docling_parse", "model:docling_parse_layout", priority=95)
+class DoclingParseLabelMapper(LayoutLabelMapper):
+    """Mapper for raw Docling labels emitted from the native DoclingDocument payload."""
+
+    def to_canonical(
+        self,
+        label: str,
+        prediction: LayoutPrediction,
+        context: MappingContext,
+    ) -> CanonicalLabel:
+        del prediction, context
+        canonical, _attrs = map_docling_raw_label_to_canonical(label)
+        return canonical
+
+
+@register_layout_label_mapper("oi_parser", "model:oi_parser_layout", priority=90)
+class OIParserLabelMapper(LayoutLabelMapper):
+    """Mapper for oi-parser layout labels.
+
+    oi-parser emits Canonical17 labels in lowercase-hyphenated form (e.g.
+    ``page-header``); normalize the casing back to the Canonical17 enum values.
+    """
+
+    # Canonical17 values keyed by their lowercased form for case-insensitive lookup.
+    _BY_LOWER: dict[str, CanonicalLabel] = {label.value.lower(): label for label in CanonicalLabel}
+
+    def to_canonical(
+        self,
+        label: str,
+        prediction: LayoutPrediction,
+        context: MappingContext,
+    ) -> CanonicalLabel:
+        del prediction, context
+        canonical = self._BY_LOWER.get(label.strip().lower())
+        if canonical is None:
+            raise UnknownRawLayoutLabelError(f"Unknown oi-parser layout label '{label}'")
+        return canonical
+
+
+@register_layout_label_mapper("cohere_parse", "model:cohere_parse_layout", priority=90)
+class CohereParseLabelMapper(LayoutLabelMapper):
+    """Mapper for Cohere Parse layout labels.
+
+    Cohere Parse emits Canonical17 labels directly (e.g. ``Title``, ``Table``,
+    ``Page-header``); normalize casing for case-insensitive lookup.
+    """
+
+    _BY_LOWER: dict[str, CanonicalLabel] = {label.value.lower(): label for label in CanonicalLabel}
+
+    def to_canonical(
+        self,
+        label: str,
+        prediction: LayoutPrediction,
+        context: MappingContext,
+    ) -> CanonicalLabel:
+        del prediction, context
+        canonical = self._BY_LOWER.get(label.strip().lower())
+        if canonical is None:
+            raise UnknownRawLayoutLabelError(f"Unknown cohere-parse layout label '{label}'")
+        return canonical
+
+
+@register_layout_label_mapper("anyformat", "model:anyformat_layout", priority=90)
+class AnyformatLabelMapper(LayoutLabelMapper):
+    """Mapper for anyformat block types.
+
+    The API emits Canonical17 names in lowercase-hyphenated form plus ``other`` and ``chart``,
+    which have no Canonical17 counterpart of their own.
+    """
+
+    _BY_LOWER: dict[str, CanonicalLabel] = {label.value.lower(): label for label in CanonicalLabel}
+    _EXTRA: dict[str, CanonicalLabel] = {
+        "other": CanonicalLabel.TEXT,
+        "chart": CanonicalLabel.PICTURE,
+        "figure": CanonicalLabel.PICTURE,
+        "image": CanonicalLabel.PICTURE,
+        "list_item": CanonicalLabel.LIST_ITEM,
+        "section_header": CanonicalLabel.SECTION_HEADER,
+        "page_header": CanonicalLabel.PAGE_HEADER,
+        "page_footer": CanonicalLabel.PAGE_FOOTER,
+    }
+
+    def to_canonical(
+        self,
+        label: str,
+        prediction: LayoutPrediction,
+        context: MappingContext,
+    ) -> CanonicalLabel:
+        del prediction, context
+        key = label.strip().lower()
+        canonical = self._BY_LOWER.get(key) or self._EXTRA.get(key)
+        if canonical is None:
+            raise UnknownRawLayoutLabelError(f"Unknown anyformat layout label '{label}'")
+        return canonical
+
+
+@register_layout_label_mapper(
+    "pymupdf4llm",
+    "model:pymupdf4llm_layout",
+    priority=95,
+)
+class PyMuPDF4LLMLabelMapper(LayoutLabelMapper):
+    """Map raw PyMuPDF4LLM boxclass labels into the benchmark ontology."""
+
+    _MAPPING: dict[str, CanonicalLabel] = {
+        "caption": CanonicalLabel.CAPTION,
+        "footnote": CanonicalLabel.FOOTNOTE,
+        "formula": CanonicalLabel.FORMULA,
+        "list-item": CanonicalLabel.LIST_ITEM,
+        "listitem": CanonicalLabel.LIST_ITEM,
+        "page-footer": CanonicalLabel.PAGE_FOOTER,
+        "pagefooter": CanonicalLabel.PAGE_FOOTER,
+        "page-header": CanonicalLabel.PAGE_HEADER,
+        "pageheader": CanonicalLabel.PAGE_HEADER,
+        "picture": CanonicalLabel.PICTURE,
+        "image": CanonicalLabel.PICTURE,
+        "section-header": CanonicalLabel.SECTION_HEADER,
+        "sectionheader": CanonicalLabel.SECTION_HEADER,
+        "heading": CanonicalLabel.SECTION_HEADER,
+        "table": CanonicalLabel.TABLE,
+        "text": CanonicalLabel.TEXT,
+        "title": CanonicalLabel.TITLE,
+        "code": CanonicalLabel.CODE,
+        "document-index": CanonicalLabel.DOCUMENT_INDEX,
+        "documentindex": CanonicalLabel.DOCUMENT_INDEX,
+        "form": CanonicalLabel.FORM,
+        "key-value-region": CanonicalLabel.KEY_VALUE_REGION,
+        "keyvalueregion": CanonicalLabel.KEY_VALUE_REGION,
+        "checkbox-selected": CanonicalLabel.CHECKBOX_SELECTED,
+        "checkboxselected": CanonicalLabel.CHECKBOX_SELECTED,
+        "checkbox-unselected": CanonicalLabel.CHECKBOX_UNSELECTED,
+        "checkboxunselected": CanonicalLabel.CHECKBOX_UNSELECTED,
+    }
+
+    def to_canonical(
+        self,
+        label: str,
+        prediction: LayoutPrediction,
+        context: MappingContext,
+    ) -> CanonicalLabel:
+        del prediction, context
+        normalized = label.strip().lower().replace("_", "-").replace(" ", "-")
+        mapped = self._MAPPING.get(normalized)
+        if mapped is None:
+            raise UnknownRawLayoutLabelError(f"Unknown PyMuPDF4LLM raw layout label '{label}'")
+        return mapped
+
+
+@register_layout_label_mapper(
+    "model:yolo_doclaynet",
+    "model:docling_layout_old",
+    "model:docling_layout_heron_101",
+    "model:docling_layout_heron",
+    "model:ppdoclayout_plus_l",
+    "model:qwen3_vl_8b",
+    "model:gemini_layout",
+    "model:openai_layout",
+    "model:anthropic_layout",
+    "model:gemma4_layout",
+    "model:surya_layout",
+    "model:chandra",
+    "model:layout_v3",
+    priority=90,
+)
+class IndexedLayoutModelMapper(LayoutLabelMapper):
+    """Mapper for integer-index model outputs."""
+
+    _adapters: dict[LayoutDetectionModel, Any] = {
+        LayoutDetectionModel.YOLO_DOCLAYNET: YoloLayoutDetLabelAdapter(),
+        LayoutDetectionModel.DOCLING_LAYOUT_OLD: DoclingLayoutDetLabelAdapter(),
+        LayoutDetectionModel.DOCLING_LAYOUT_HERON_101: DoclingLayoutDetLabelAdapter(),
+        LayoutDetectionModel.DOCLING_LAYOUT_HERON: DoclingLayoutDetLabelAdapter(),
+        LayoutDetectionModel.PPDOCLAYOUT_PLUS_L: PPLayoutDetLabelAdapter(),
+        LayoutDetectionModel.QWEN3_VL_8B: Qwen3VLLayoutDetLabelAdapter(),
+        LayoutDetectionModel.GEMINI_LAYOUT: Qwen3VLLayoutDetLabelAdapter(),
+        LayoutDetectionModel.OPENAI_LAYOUT: Qwen3VLLayoutDetLabelAdapter(),
+        LayoutDetectionModel.ANTHROPIC_LAYOUT: Qwen3VLLayoutDetLabelAdapter(),
+        LayoutDetectionModel.GEMMA4_LAYOUT: Qwen3VLLayoutDetLabelAdapter(),
+        LayoutDetectionModel.SURYA_LAYOUT: SuryaLayoutDetLabelAdapter(),
+        LayoutDetectionModel.CHANDRA: ChandraLayoutDetLabelAdapter(),
+        LayoutDetectionModel.LAYOUT_V3: LayoutV3LabelAdapter(),
+    }
+
+    def to_canonical(
+        self,
+        label: str,
+        prediction: LayoutPrediction,
+        context: MappingContext,
+    ) -> CanonicalLabel:
+        adapter = self._adapters.get(context.model)
+        if adapter is None:
+            raise UnknownRawLayoutLabelError(f"No indexed label adapter for model '{context.model.value}'")
+
+        label_int = _parse_int_label(label, context.model)
+        mapped = None
+        if context.model == LayoutDetectionModel.LAYOUT_V3 and hasattr(adapter, "to_canonical_with_figure_class"):
+            figure_metadata = prediction.provider_metadata.get("figure_classification")
+            figure_class = None
+            figure_score = None
+            if isinstance(figure_metadata, dict):
+                figure_class = figure_metadata.get("figure_class")
+                figure_score_value = figure_metadata.get("figure_score")
+                if isinstance(figure_score_value, (int, float)):
+                    figure_score = float(figure_score_value)
+            mapped = adapter.to_canonical_with_figure_class(
+                label_int,
+                prediction.score,
+                prediction.bbox,
+                figure_class=figure_class,
+                figure_score=figure_score,
+            )
+        else:
+            mapped = adapter.to_canonical(label_int, prediction.score, prediction.bbox)
+
+        if mapped is None:
+            raise UnknownRawLayoutLabelError(f"Unknown raw layout label '{label}' for model '{context.model.value}'")
+        return mapped.canonical_class  # type: ignore[no-any-return]
+
+
+@register_layout_label_mapper("chunkr", "model:chunkr", priority=90)
+class ChunkrLabelMapper(LayoutLabelMapper):
+    """Mapper for Chunkr string labels."""
+
+    _adapter = ChunkrLayoutDetLabelAdapter()
+
+    def to_canonical(
+        self,
+        label: str,
+        prediction: LayoutPrediction,
+        context: MappingContext,
+    ) -> CanonicalLabel:
+        del context
+        mapped = self._adapter.to_canonical(label, prediction.score, prediction.bbox)
+        if mapped is None:
+            raise UnknownRawLayoutLabelError(f"Unknown Chunkr raw layout label '{label}'")
+        return mapped.canonical_class
+
+
+@register_layout_label_mapper("dots_ocr_layout", "model:dots_ocr", priority=90)
+class DotsOcrLabelMapper(LayoutLabelMapper):
+    """Mapper for dots.ocr string labels."""
+
+    _adapter = DotsOcrLayoutDetLabelAdapter()
+
+    def to_canonical(
+        self,
+        label: str,
+        prediction: LayoutPrediction,
+        context: MappingContext,
+    ) -> CanonicalLabel:
+        del context
+        mapped = self._adapter.to_canonical(label, prediction.score, prediction.bbox)
+        if mapped is None:
+            raise UnknownRawLayoutLabelError(f"Unknown dots.ocr raw layout label '{label}'")
+        return mapped.canonical_class
+
+
+@register_layout_label_mapper(
+    "liteparse",
+    "hpd_parsing",
+    "model:liteparse_layout",
+    "model:hpd_parsing_layout",
+    priority=90,
+)
+class LiteParseLabelMapper(LayoutLabelMapper):
+    """Validate providers whose layout blocks already use canonical labels."""
+
+    _BY_LOWER: dict[str, CanonicalLabel] = {label.value.lower(): label for label in CanonicalLabel}
+
+    def to_canonical(
+        self,
+        label: str,
+        prediction: LayoutPrediction,
+        context: MappingContext,
+    ) -> CanonicalLabel:
+        del prediction, context
+        canonical = self._BY_LOWER.get(label.strip().lower())
+        if canonical is None:
+            raise UnknownRawLayoutLabelError(f"Unknown canonical layout label '{label}'")
+        return canonical

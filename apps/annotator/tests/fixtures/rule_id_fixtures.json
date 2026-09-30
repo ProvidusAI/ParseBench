@@ -1,0 +1,171 @@
+{
+  "hash_len": 16,
+  "cases": [
+    {
+      "name": "scalar_no_bboxes",
+      "payload": {
+        "type": "extract_field",
+        "field_path": "po_number",
+        "source_bbox_index": null,
+        "expected_value": "PO-1234",
+        "verified": true,
+        "tags": [
+          "benchmark_fixture"
+        ]
+      },
+      "signature": "{\"expected_value\":\"PO-1234\",\"field_path\":\"po_number\",\"source_bbox_index\":null,\"tags\":[\"benchmark_fixture\"],\"type\":\"extract_field\",\"verified\":true}",
+      "id": "e442c3b2f0a3dee3"
+    },
+    {
+      "name": "scalar_with_source_index",
+      "payload": {
+        "type": "extract_field",
+        "field_path": "record_id",
+        "source_bbox_index": 0,
+        "expected_value": "REC-0000",
+        "verified": true,
+        "tags": [
+          "benchmark_fixture"
+        ]
+      },
+      "signature": "{\"expected_value\":\"REC-0000\",\"field_path\":\"record_id\",\"source_bbox_index\":0,\"tags\":[\"benchmark_fixture\"],\"type\":\"extract_field\",\"verified\":true}",
+      "id": "a6eda594b9e7123a"
+    },
+    {
+      "name": "array_row_stray",
+      "payload": {
+        "type": "extract_field",
+        "field_path": "line_items[3].description",
+        "source_bbox_index": 17,
+        "expected_value": "Widget XL",
+        "verified": false,
+        "tags": [
+          "benchmark_fixture",
+          "stray_evidence"
+        ]
+      },
+      "signature": "{\"expected_value\":\"Widget XL\",\"field_path\":\"line_items[3].description\",\"source_bbox_index\":17,\"tags\":[\"benchmark_fixture\",\"stray_evidence\"],\"type\":\"extract_field\",\"verified\":false}",
+      "id": "ba52b71ba42d17da"
+    },
+    {
+      "name": "non_ascii_value",
+      "payload": {
+        "type": "extract_field",
+        "field_path": "vendor.name",
+        "source_bbox_index": 0,
+        "expected_value": "Éxample Café — Cañon 42",
+        "verified": true,
+        "tags": [
+          "benchmark_fixture"
+        ]
+      },
+      "signature": "{\"expected_value\":\"Éxample Café — Cañon 42\",\"field_path\":\"vendor.name\",\"source_bbox_index\":0,\"tags\":[\"benchmark_fixture\"],\"type\":\"extract_field\",\"verified\":true}",
+      "id": "7e9d2a6d4271898c"
+    },
+    {
+      "name": "null_value",
+      "payload": {
+        "type": "extract_field",
+        "field_path": "optional_field",
+        "source_bbox_index": null,
+        "expected_value": null,
+        "verified": true,
+        "tags": []
+      },
+      "signature": "{\"expected_value\":null,\"field_path\":\"optional_field\",\"source_bbox_index\":null,\"tags\":[],\"type\":\"extract_field\",\"verified\":true}",
+      "id": "5936a9e77dae2d6b"
+    },
+    {
+      "name": "float_value",
+      "payload": {
+        "type": "extract_field",
+        "field_path": "total_due",
+        "source_bbox_index": 4,
+        "expected_value": 123.45,
+        "verified": true,
+        "tags": [
+          "benchmark_fixture"
+        ]
+      },
+      "signature": "{\"expected_value\":123.45,\"field_path\":\"total_due\",\"source_bbox_index\":4,\"tags\":[\"benchmark_fixture\"],\"type\":\"extract_field\",\"verified\":true}",
+      "id": "4835d39a9b58f460"
+    },
+    {
+      "name": "int_value",
+      "payload": {
+        "type": "extract_field",
+        "field_path": "count",
+        "source_bbox_index": 0,
+        "expected_value": 42,
+        "verified": true,
+        "tags": [
+          "benchmark_fixture"
+        ]
+      },
+      "signature": "{\"expected_value\":42,\"field_path\":\"count\",\"source_bbox_index\":0,\"tags\":[\"benchmark_fixture\"],\"type\":\"extract_field\",\"verified\":true}",
+      "id": "d897e21ac5bb3c9e"
+    },
+    {
+      "name": "bool_value",
+      "payload": {
+        "type": "extract_field",
+        "field_path": "paid",
+        "source_bbox_index": null,
+        "expected_value": true,
+        "verified": false,
+        "tags": [
+          "benchmark_fixture"
+        ]
+      },
+      "signature": "{\"expected_value\":true,\"field_path\":\"paid\",\"source_bbox_index\":null,\"tags\":[\"benchmark_fixture\"],\"type\":\"extract_field\",\"verified\":false}",
+      "id": "3302e4744cff2995"
+    }
+  ],
+  "collision": {
+    "name": "collision_resolution",
+    "assignments": [
+      {
+        "rule": {
+          "type": "extract_field",
+          "field_path": "stray_column",
+          "source_bbox_index": null,
+          "expected_value": null,
+          "verified": false,
+          "tags": [
+            "benchmark_fixture",
+            "stray_evidence"
+          ]
+        },
+        "id": "000-95c242c9dee532ca"
+      },
+      {
+        "rule": {
+          "type": "extract_field",
+          "field_path": "stray_column",
+          "source_bbox_index": null,
+          "expected_value": null,
+          "verified": false,
+          "tags": [
+            "benchmark_fixture",
+            "stray_evidence"
+          ]
+        },
+        "id": "001-95c242c9dee532ca"
+      },
+      {
+        "rule": {
+          "type": "extract_field",
+          "field_path": "stray_column",
+          "source_bbox_index": null,
+          "expected_value": null,
+          "verified": false,
+          "tags": [
+            "benchmark_fixture",
+            "stray_evidence"
+          ]
+        },
+        "id": "002-95c242c9dee532ca"
+      }
+    ]
+  }
+}

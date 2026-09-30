@@ -1,0 +1,73 @@
+{
+  "annotation_mode": "extract",
+  "data_schema": {
+    "type": "object",
+    "properties": {
+      "po_number": { "type": "string", "description": "Purchase order number" },
+      "line_items": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "description": { "type": "string" }
+          }
+        }
+      }
+    },
+    "required": ["po_number"]
+  },
+  "expected_output": {
+    "po_number": "PO2026-1895",
+    "line_items": [
+      { "description": "Fall Harness, Full Body, Universal" },
+      { "description": "Hard Hat, Type II, Class E, White" }
+    ]
+  },
+  "test_rules": [
+    {
+      "type": "extract_field",
+      "id": "ef_po_number",
+      "field_path": "po_number",
+      "expected_value": "PO2026-1895",
+      "bboxes": [
+        { "page": 1, "bbox": [0.196, 0.101, 0.098, 0.019], "source_bbox_index": 0 }
+      ],
+      "verified": true,
+      "tags": ["benchmark_fixture"]
+    },
+    {
+      "type": "extract_field",
+      "id": "ef_line_items_0_description",
+      "field_path": "line_items[0].description",
+      "expected_value": "Fall Harness, Full Body, Universal",
+      "bboxes": [
+        { "page": 1, "bbox": [0.12, 0.40, 0.35, 0.018], "source_bbox_index": 0 }
+      ],
+      "verified": false,
+      "tags": ["benchmark_fixture"]
+    },
+    {
+      "type": "extract_field",
+      "id": "ef_line_items_1_description",
+      "field_path": "line_items[1].description",
+      "expected_value": "Hard Hat, Type II, Class E, White",
+      "bboxes": [
+        { "page": 1, "bbox": [0.12, 0.44, 0.30, 0.018], "source_bbox_index": 1 }
+      ],
+      "verified": false,
+      "tags": ["benchmark_fixture"]
+    },
+    {
+      "type": "extract_field",
+      "id": "ef_line_items_0_stray",
+      "field_path": "line_items[0].description",
+      "expected_value": null,
+      "bboxes": [
+        { "page": 1, "bbox": [0.12, 0.48, 0.25, 0.018], "source_bbox_index": 2 }
+      ],
+      "verified": false,
+      "tags": ["benchmark_fixture", "stray_evidence"]
+    }
+  ],
+  "tags": ["v05-fixture"]
+}

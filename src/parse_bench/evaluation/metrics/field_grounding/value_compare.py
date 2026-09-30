@@ -1,0 +1,190 @@
+"""Typed attribution comparison helpers for field grounding metrics."""
+
+from __future__ import annotations
+
+import re
+from functools import lru_cache
+from typing import Any, Literal, cast
+
+from parse_bench.evaluation.metrics.field_grounding.core import (
+    STRING_MATCH_THRESHOLD,
+    ValueComparison,
+)
+from parse_bench.test_cases.bbox_value_strict_comparator import (
+    COMPARATOR_VERSION,
+    ExpectedType,
+    ExtractionSource,
+)
+from parse_bench.test_cases.bbox_value_strict_comparator import (
+    compare as compare_bbox_value,
+)
+
+AttributionSource = Literal["native", "ocr", "structured_value_no_citation_text"]
+
+_DIAGNOSTIC_ONLY_MODES = frozenset({"annotation_truncated", "ocr_noise_prefix"})
+_STRING_FALLBACK_TYPES = frozenset({"string", "date"})
+
+
+def compare_attributed_value(
+    expected_value: Any,
+    actual_text: Any,
+    *,
+    expected_type: ExpectedType | None = None,
+    source_kind: AttributionSource = "native",
+    allow_diagnostic_equivalences: bool = False,
+) -> ValueComparison:
+    """Compare one expected field value against selected attribution text.
+
+    The strict DataSnipper comparator is the primary authority for typed
+    equivalences. A Jaro-Winkler fallback is retained for string-shaped
+    values, matching the field-grounding metric contract, but substring
+    containment is intentionally never a passing mode here.
+    """
+    resolved_type = expected_type or infer_expected_type(expected_value)
+    extraction_source: ExtractionSource = "ocr" if source_kind == "ocr" else "native"
+    verdict = compare_bbox_value(
+        expected_value,
+        resolved_type,
+        "" if actual_text is None else str(actual_text),
+        extraction_source=extraction_source,
+    )
+
+    diagnostic_only = verdict.equivalence_used in _DIAGNOSTIC_ONLY_MODES and not allow_diagnostic_equivalences
+    if verdict.verified and not diagnostic_only:
+        return ValueComparison(
+            passed=True,
+            score=1.0,
+            mode=verdict.equivalence_used,
+            reason="pass",
+        )
+
+    score = float(verdict.similarity_score or 0.0)
+    if resolved_type in _STRING_FALLBACK_TYPES and score >= STRING_MATCH_THRESHOLD:
+        return ValueComparison(
+            passed=True,
+            score=score,
+            mode="jaro_winkler",
+            reason="pass",
+        )
+
+    reason = verdict.reason
+    if diagnostic_only:
+        reason = f"{verdict.equivalence_used}_diagnostic_only"
+    return ValueComparison(
+        passed=False,
+        score=score,
+        mode=verdict.equivalence_used if verdict.equivalence_used != "none" else "strict",
+        reason=reason or "no_equivalence_rule_matched",
+    )
+
+
+def infer_expected_type(expected_value: Any) -> ExpectedType:
+    """Infer a strict comparator type when schema metadata is unavailable."""
+    if expected_value is None:
+        return "null"
+    if isinstance(expected_value, bool):
+        return "boolean"
+    if isinstance(expected_value, (int, float)):
+        return "number"
+    if isinstance(expected_value, str) and _looks_like_iso_date(expected_value):
+        return "date"
+    return "string"
+
+
+def expected_type_for_field_path(
+    data_schema: dict[str, Any] | None,
+    field_path: str,
+    expected_value: Any,
+) -> ExpectedType:
+    """Resolve a field's expected type from JSON schema, falling back safely."""
+    schema_type = _schema_type_for_field_path(_freeze_schema(data_schema), field_path) if data_schema else None
+    if schema_type in {"string", "number", "integer", "boolean", "null"}:
+        if schema_type == "integer":
+            return "number"
+        return cast(ExpectedType, schema_type)
+    return infer_expected_type(expected_value)
+
+
+@lru_cache(maxsize=4096)
+def _schema_type_for_field_path(schema_key: tuple[Any, ...], field_path: str) -> str | None:
+    schema = _thaw_schema(schema_key)
+    tokens = _parse_field_path_tokens(field_path)
+    cursor: Any = schema
+
+    for token in tokens:
+        cursor = _descend_schema(cursor, token)
+        if cursor is None:
+            return None
+
+    schema_type = cursor.get("type") if isinstance(cursor, dict) else None
+    if isinstance(schema_type, list):
+        non_null = [item for item in schema_type if item != "null"]
+        return str(non_null[0]) if non_null else "null"
+    return str(schema_type) if schema_type is not None else None
+
+
+def _descend_schema(schema: Any, token: str | int) -> Any:
+    if not isinstance(schema, dict):
+        return None
+
+    schema_type = schema.get("type")
+    if isinstance(token, int):
+        if schema_type == "array" or "items" in schema:
+            return schema.get("items")
+        return None
+
+    if schema_type == "array" or ("items" in schema and "properties" not in schema):
+        schema = schema.get("items")
+        if not isinstance(schema, dict):
+            return None
+
+    properties = schema.get("properties")
+    if isinstance(properties, dict) and token in properties:
+        return properties[token]
+    return None
+
+
+def _parse_field_path_tokens(field_path: str) -> tuple[str | int, ...]:
+    tokens: list[str | int] = []
+    for part in field_path.split("."):
+        if not part:
+            continue
+        match = re.match(r"^([^\[]+)", part)
+        if match:
+            tokens.append(match.group(1))
+        for index in re.findall(r"\[(\d+)\]", part):
+            tokens.append(int(index))
+    return tuple(tokens)
+
+
+def _looks_like_iso_date(value: str) -> bool:
+    return bool(re.fullmatch(r"\d{4}-\d{2}-\d{2}", value.strip()))
+
+
+def _freeze_schema(value: Any) -> tuple[Any, ...]:
+    if value is None:
+        return ()
+    if isinstance(value, dict):
+        return tuple(sorted((key, _freeze_schema(item)) for key, item in value.items()))
+    if isinstance(value, list):
+        return tuple(_freeze_schema(item) for item in value)
+    return (value,)
+
+
+def _thaw_schema(value: tuple[Any, ...]) -> Any:
+    if not value:
+        return None
+    if all(isinstance(item, tuple) and len(item) == 2 and isinstance(item[0], str) for item in value):
+        return {key: _thaw_schema(cast(tuple[Any, ...], item)) for key, item in value}
+    if len(value) == 1 and not isinstance(value[0], tuple):
+        return value[0]
+    return [_thaw_schema(cast(tuple[Any, ...], item)) for item in value]
+
+
+__all__ = [
+    "COMPARATOR_VERSION",
+    "AttributionSource",
+    "compare_attributed_value",
+    "expected_type_for_field_path",
+    "infer_expected_type",
+]

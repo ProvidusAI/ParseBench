@@ -1,0 +1,571 @@
+{
+  "version": 1,
+  "description": "Declarative rule metadata for annotator add/edit/render flows and coverage audits.",
+  "field_kinds": {
+    "text": "Single-line text input.",
+    "textarea": "Multi-line text input.",
+    "integer": "Whole number input.",
+    "number": "Numeric input.",
+    "boolean": "Checkbox/toggle input.",
+    "string_array": "List of strings.",
+    "string_int_map": "Map of string keys to integer counts.",
+    "table_like_2d": "2D row/column array content.",
+    "json": "Arbitrary JSON payload.",
+    "scalar": "String, integer, float, or null.",
+    "bbox4_normalized": "Normalized [x, y, width, height] bbox with values in [0,1].",
+    "enum": "Single option from a predefined set.",
+    "object": "Key-value JSON object.",
+    "layout_content": "Layout content object: {type:'text', text:'...'} or {type:'table', html:'...'}."
+  },
+  "base_fields": [
+    {
+      "name": "id",
+      "kind": "text",
+      "required": false,
+      "help": "Optional stable rule identifier."
+    },
+    {
+      "name": "page",
+      "kind": "integer",
+      "required": false,
+      "help": "1-indexed page number for multipage inputs."
+    },
+    {
+      "name": "max_diffs",
+      "kind": "integer",
+      "required": false,
+      "default": 0,
+      "help": "Fuzzy matching tolerance."
+    },
+    {
+      "name": "tags",
+      "kind": "string_array",
+      "required": false,
+      "default": []
+    }
+  ],
+  "rules": [
+    {
+      "type": "present",
+      "category": "text",
+      "ai_supported": true,
+      "summary_fields": ["text", "count", "page"],
+      "fields": [
+        { "name": "text", "kind": "textarea", "required": true },
+        { "name": "case_sensitive", "kind": "boolean", "required": false, "default": true },
+        { "name": "first_n", "kind": "integer", "required": false },
+        { "name": "last_n", "kind": "integer", "required": false },
+        { "name": "count", "kind": "integer", "required": false },
+        {
+          "name": "keep_formatting_text_normalisation",
+          "kind": "boolean",
+          "required": false,
+          "default": false
+        }
+      ]
+    },
+    {
+      "type": "absent",
+      "category": "text",
+      "ai_supported": true,
+      "summary_fields": ["text", "page"],
+      "fields": [
+        { "name": "text", "kind": "textarea", "required": true },
+        { "name": "case_sensitive", "kind": "boolean", "required": false, "default": true },
+        {
+          "name": "keep_formatting_text_normalisation",
+          "kind": "boolean",
+          "required": false,
+          "default": false
+        }
+      ]
+    },
+    {
+      "type": "order",
+      "category": "text",
+      "ai_supported": true,
+      "summary_fields": ["before", "after", "page"],
+      "fields": [
+        { "name": "before", "kind": "textarea", "required": true },
+        { "name": "after", "kind": "textarea", "required": true },
+        {
+          "name": "keep_formatting_text_normalisation",
+          "kind": "boolean",
+          "required": false,
+          "default": false
+        }
+      ]
+    },
+    {
+      "type": "unexpected_sentence",
+      "category": "text",
+      "ai_supported": true,
+      "summary_fields": ["bag_of_sentence", "page"],
+      "fields": [
+        { "name": "bag_of_sentence", "kind": "string_int_map", "required": true, "default": {} }
+      ]
+    },
+    {
+      "type": "too_many_sentence_occurence",
+      "category": "text",
+      "ai_supported": true,
+      "summary_fields": ["bag_of_sentence", "page"],
+      "fields": [
+        { "name": "bag_of_sentence", "kind": "string_int_map", "required": true, "default": {} }
+      ]
+    },
+    {
+      "type": "missing_sentence",
+      "category": "text",
+      "ai_supported": true,
+      "summary_fields": ["bag_of_sentence", "page"],
+      "fields": [
+        { "name": "bag_of_sentence", "kind": "string_int_map", "required": true, "default": {} }
+      ]
+    },
+    {
+      "type": "unexpected_word",
+      "category": "text",
+      "ai_supported": true,
+      "summary_fields": ["bag_of_word", "page"],
+      "fields": [
+        { "name": "bag_of_word", "kind": "string_int_map", "required": true, "default": {} }
+      ]
+    },
+    {
+      "type": "too_many_word_occurence",
+      "category": "text",
+      "ai_supported": true,
+      "summary_fields": ["bag_of_word", "page"],
+      "fields": [
+        { "name": "bag_of_word", "kind": "string_int_map", "required": true, "default": {} }
+      ]
+    },
+    {
+      "type": "missing_word",
+      "category": "text",
+      "ai_supported": true,
+      "summary_fields": ["bag_of_word", "page"],
+      "fields": [
+        { "name": "bag_of_word", "kind": "string_int_map", "required": true, "default": {} }
+      ]
+    },
+    {
+      "type": "baseline",
+      "category": "system",
+      "ai_supported": false,
+      "summary_fields": ["max_length", "max_repeats", "check_disallowed_characters"],
+      "fields": [
+        { "name": "max_length", "kind": "integer", "required": false },
+        {
+          "name": "max_length_skips_image_alt_tags",
+          "kind": "boolean",
+          "required": false,
+          "default": false
+        },
+        { "name": "max_repeats", "kind": "integer", "required": false, "default": 30 },
+        {
+          "name": "check_disallowed_characters",
+          "kind": "boolean",
+          "required": false,
+          "default": true
+        }
+      ]
+    },
+    {
+      "type": "table",
+      "category": "table",
+      "ai_supported": true,
+      "summary_fields": ["cell", "top_heading", "left_heading", "page"],
+      "fields": [
+        { "name": "cell", "kind": "text", "required": true },
+        { "name": "up", "kind": "text", "required": false },
+        { "name": "down", "kind": "text", "required": false },
+        { "name": "left", "kind": "text", "required": false },
+        { "name": "right", "kind": "text", "required": false },
+        { "name": "top_heading", "kind": "text", "required": false },
+        { "name": "left_heading", "kind": "text", "required": false },
+        { "name": "ignore_markdown_tables", "kind": "boolean", "required": false, "default": false }
+      ]
+    },
+    {
+      "type": "table_colspan",
+      "category": "table",
+      "ai_supported": false,
+      "summary_fields": ["cell", "expected_colspan", "page"],
+      "fields": [
+        { "name": "cell", "kind": "text", "required": true },
+        { "name": "expected_colspan", "kind": "integer", "required": true, "default": 1 },
+        { "name": "table_anchor_cells", "kind": "string_array", "required": false, "default": [] }
+      ]
+    },
+    {
+      "type": "table_rowspan",
+      "category": "table",
+      "ai_supported": false,
+      "summary_fields": ["cell", "expected_rowspan", "page"],
+      "fields": [
+        { "name": "cell", "kind": "text", "required": true },
+        { "name": "expected_rowspan", "kind": "integer", "required": true, "default": 1 },
+        { "name": "table_anchor_cells", "kind": "string_array", "required": false, "default": [] }
+      ]
+    },
+    {
+      "type": "table_same_row",
+      "category": "table",
+      "ai_supported": false,
+      "summary_fields": ["cell_a", "cell_b", "page"],
+      "fields": [
+        { "name": "cell_a", "kind": "text", "required": true },
+        { "name": "cell_b", "kind": "text", "required": true },
+        { "name": "table_anchor_cells", "kind": "string_array", "required": false, "default": [] }
+      ]
+    },
+    {
+      "type": "table_same_column",
+      "category": "table",
+      "ai_supported": false,
+      "summary_fields": ["cell_a", "cell_b", "page"],
+      "fields": [
+        { "name": "cell_a", "kind": "text", "required": true },
+        { "name": "cell_b", "kind": "text", "required": true },
+        { "name": "table_anchor_cells", "kind": "string_array", "required": false, "default": [] }
+      ]
+    },
+    {
+      "type": "table_top_header",
+      "category": "table",
+      "ai_supported": false,
+      "summary_fields": ["data_cell", "expected_header", "page"],
+      "fields": [
+        { "name": "data_cell", "kind": "text", "required": true },
+        { "name": "expected_header", "kind": "text", "required": true },
+        { "name": "table_anchor_cells", "kind": "string_array", "required": false, "default": [] }
+      ]
+    },
+    {
+      "type": "table_left_header",
+      "category": "table",
+      "ai_supported": false,
+      "summary_fields": ["data_cell", "expected_header", "page"],
+      "fields": [
+        { "name": "data_cell", "kind": "text", "required": true },
+        { "name": "expected_header", "kind": "text", "required": true },
+        { "name": "table_anchor_cells", "kind": "string_array", "required": false, "default": [] }
+      ]
+    },
+    {
+      "type": "table_adjacent_up",
+      "category": "table",
+      "ai_supported": false,
+      "summary_fields": ["anchor_cell", "expected_neighbor", "page"],
+      "fields": [
+        { "name": "anchor_cell", "kind": "text", "required": true },
+        { "name": "expected_neighbor", "kind": "text", "required": true },
+        { "name": "table_anchor_cells", "kind": "string_array", "required": false, "default": [] }
+      ]
+    },
+    {
+      "type": "table_adjacent_down",
+      "category": "table",
+      "ai_supported": false,
+      "summary_fields": ["anchor_cell", "expected_neighbor", "page"],
+      "fields": [
+        { "name": "anchor_cell", "kind": "text", "required": true },
+        { "name": "expected_neighbor", "kind": "text", "required": true },
+        { "name": "table_anchor_cells", "kind": "string_array", "required": false, "default": [] }
+      ]
+    },
+    {
+      "type": "table_adjacent_left",
+      "category": "table",
+      "ai_supported": false,
+      "summary_fields": ["anchor_cell", "expected_neighbor", "page"],
+      "fields": [
+        { "name": "anchor_cell", "kind": "text", "required": true },
+        { "name": "expected_neighbor", "kind": "text", "required": true },
+        { "name": "table_anchor_cells", "kind": "string_array", "required": false, "default": [] }
+      ]
+    },
+    {
+      "type": "table_adjacent_right",
+      "category": "table",
+      "ai_supported": false,
+      "summary_fields": ["anchor_cell", "expected_neighbor", "page"],
+      "fields": [
+        { "name": "anchor_cell", "kind": "text", "required": true },
+        { "name": "expected_neighbor", "kind": "text", "required": true },
+        { "name": "table_anchor_cells", "kind": "string_array", "required": false, "default": [] }
+      ]
+    },
+    {
+      "type": "table_no_left",
+      "category": "table",
+      "ai_supported": false,
+      "summary_fields": ["cell", "page"],
+      "fields": [
+        { "name": "cell", "kind": "text", "required": true },
+        { "name": "table_anchor_cells", "kind": "string_array", "required": false, "default": [] }
+      ]
+    },
+    {
+      "type": "table_no_right",
+      "category": "table",
+      "ai_supported": false,
+      "summary_fields": ["cell", "page"],
+      "fields": [
+        { "name": "cell", "kind": "text", "required": true },
+        { "name": "table_anchor_cells", "kind": "string_array", "required": false, "default": [] }
+      ]
+    },
+    {
+      "type": "table_no_above",
+      "category": "table",
+      "ai_supported": false,
+      "summary_fields": ["cell", "page"],
+      "fields": [
+        { "name": "cell", "kind": "text", "required": true },
+        { "name": "table_anchor_cells", "kind": "string_array", "required": false, "default": [] }
+      ]
+    },
+    {
+      "type": "table_no_below",
+      "category": "table",
+      "ai_supported": false,
+      "summary_fields": ["cell", "page"],
+      "fields": [
+        { "name": "cell", "kind": "text", "required": true },
+        { "name": "table_anchor_cells", "kind": "string_array", "required": false, "default": [] }
+      ]
+    },
+    {
+      "type": "chart_data_point",
+      "category": "chart",
+      "ai_supported": true,
+      "summary_fields": ["value", "labels", "page"],
+      "fields": [
+        { "name": "value", "kind": "scalar", "required": true },
+        { "name": "labels", "kind": "string_array", "required": true, "default": [] },
+        { "name": "normalize_numbers", "kind": "boolean", "required": false, "default": true },
+        { "name": "relative_tolerance", "kind": "number", "required": false, "default": 0.01 }
+      ]
+    },
+    {
+      "type": "chart_data_array_labels",
+      "category": "chart",
+      "ai_supported": false,
+      "summary_fields": ["data", "x_axis_shuffle", "transposed"],
+      "fields": [
+        { "name": "data", "kind": "table_like_2d", "required": true, "default": [] },
+        { "name": "x_axis_shuffle", "kind": "boolean", "required": false, "default": false },
+        { "name": "transposed", "kind": "boolean", "required": false, "default": false },
+        { "name": "_csv_path", "kind": "text", "required": false }
+      ]
+    },
+    {
+      "type": "chart_data_array_data",
+      "category": "chart",
+      "ai_supported": false,
+      "summary_fields": ["data", "x_axis_shuffle", "y_axis_shuffle", "transposed"],
+      "fields": [
+        { "name": "data", "kind": "table_like_2d", "required": true, "default": [] },
+        { "name": "x_axis_shuffle", "kind": "boolean", "required": false, "default": false },
+        { "name": "y_axis_shuffle", "kind": "boolean", "required": false, "default": false },
+        { "name": "normalize_numbers", "kind": "boolean", "required": false, "default": true },
+        { "name": "transposed", "kind": "boolean", "required": false, "default": false },
+        { "name": "_csv_path", "kind": "text", "required": false }
+      ]
+    },
+    {
+      "type": "is_underline",
+      "category": "formatting",
+      "ai_supported": false,
+      "summary_fields": ["text", "page"],
+      "fields": [{ "name": "text", "kind": "text", "required": true }]
+    },
+    {
+      "type": "is_not_underline",
+      "category": "formatting",
+      "ai_supported": false,
+      "summary_fields": ["text", "page"],
+      "fields": [{ "name": "text", "kind": "text", "required": true }]
+    },
+    {
+      "type": "is_bold",
+      "category": "formatting",
+      "ai_supported": false,
+      "summary_fields": ["text", "page"],
+      "fields": [{ "name": "text", "kind": "text", "required": true }]
+    },
+    {
+      "type": "is_not_bold",
+      "category": "formatting",
+      "ai_supported": false,
+      "summary_fields": ["text", "page"],
+      "fields": [{ "name": "text", "kind": "text", "required": true }]
+    },
+    {
+      "type": "is_strikeout",
+      "category": "formatting",
+      "ai_supported": false,
+      "summary_fields": ["text", "page"],
+      "fields": [{ "name": "text", "kind": "text", "required": true }]
+    },
+    {
+      "type": "is_not_strikeout",
+      "category": "formatting",
+      "ai_supported": false,
+      "summary_fields": ["text", "page"],
+      "fields": [{ "name": "text", "kind": "text", "required": true }]
+    },
+    {
+      "type": "is_italic",
+      "category": "formatting",
+      "ai_supported": false,
+      "summary_fields": ["text", "page"],
+      "fields": [{ "name": "text", "kind": "text", "required": true }]
+    },
+    {
+      "type": "is_not_italic",
+      "category": "formatting",
+      "ai_supported": false,
+      "summary_fields": ["text", "page"],
+      "fields": [{ "name": "text", "kind": "text", "required": true }]
+    },
+    {
+      "type": "is_mark",
+      "category": "formatting",
+      "ai_supported": false,
+      "summary_fields": ["text", "page"],
+      "fields": [{ "name": "text", "kind": "text", "required": true }]
+    },
+    {
+      "type": "is_not_mark",
+      "category": "formatting",
+      "ai_supported": false,
+      "summary_fields": ["text", "page"],
+      "fields": [{ "name": "text", "kind": "text", "required": true }]
+    },
+    {
+      "type": "is_sup",
+      "category": "formatting",
+      "ai_supported": false,
+      "summary_fields": ["text", "page"],
+      "fields": [{ "name": "text", "kind": "text", "required": true }]
+    },
+    {
+      "type": "is_not_sup",
+      "category": "formatting",
+      "ai_supported": false,
+      "summary_fields": ["text", "page"],
+      "fields": [{ "name": "text", "kind": "text", "required": true }]
+    },
+    {
+      "type": "is_sub",
+      "category": "formatting",
+      "ai_supported": false,
+      "summary_fields": ["text", "page"],
+      "fields": [{ "name": "text", "kind": "text", "required": true }]
+    },
+    {
+      "type": "is_not_sub",
+      "category": "formatting",
+      "ai_supported": false,
+      "summary_fields": ["text", "page"],
+      "fields": [{ "name": "text", "kind": "text", "required": true }]
+    },
+    {
+      "type": "is_title",
+      "category": "formatting",
+      "ai_supported": false,
+      "summary_fields": ["text", "page"],
+      "fields": [
+        { "name": "text", "kind": "text", "required": true },
+        { "name": "level", "kind": "integer", "required": false }
+      ]
+    },
+    {
+      "type": "is_latex",
+      "category": "formatting",
+      "ai_supported": false,
+      "summary_fields": ["formula", "page"],
+      "fields": [{ "name": "formula", "kind": "textarea", "required": true }]
+    },
+    {
+      "type": "is_code_block",
+      "category": "formatting",
+      "ai_supported": false,
+      "summary_fields": ["language", "code", "page"],
+      "fields": [
+        { "name": "language", "kind": "text", "required": true },
+        { "name": "code", "kind": "textarea", "required": true }
+      ]
+    },
+    {
+      "type": "title_hierarchy_percent",
+      "category": "formatting",
+      "ai_supported": false,
+      "summary_fields": ["title_hierarchy", "page"],
+      "fields": [
+        { "name": "title_hierarchy", "kind": "object", "required": true, "default": {} }
+      ]
+    },
+    {
+      "type": "is_header",
+      "category": "formatting",
+      "ai_supported": false,
+      "summary_fields": ["text", "page"],
+      "fields": [{ "name": "text", "kind": "text", "required": true }]
+    },
+    {
+      "type": "is_footer",
+      "category": "formatting",
+      "ai_supported": false,
+      "summary_fields": ["text", "page"],
+      "fields": [{ "name": "text", "kind": "text", "required": true }]
+    },
+    {
+      "type": "layout",
+      "category": "layout",
+      "ai_supported": false,
+      "summary_fields": ["canonical_class", "bbox", "page", "ro_index"],
+      "fields": [
+        {
+          "name": "canonical_class",
+          "kind": "enum",
+          "required": true,
+          "help": "Ontology-backed layout class."
+        },
+        {
+          "name": "bbox",
+          "kind": "bbox4_normalized",
+          "required": true,
+          "validation": { "length": 4, "min": 0, "max": 1 }
+        },
+        { "name": "ro_index", "kind": "integer", "required": false },
+        { "name": "attributes", "kind": "object", "required": false, "default": {} },
+        { "name": "content", "kind": "layout_content", "required": false }
+      ]
+    },
+    {
+      "type": "rotate_check",
+      "category": "system",
+      "ai_supported": false,
+      "summary_fields": ["value", "page"],
+      "fields": [{ "name": "value", "kind": "scalar", "required": false }]
+    },
+    {
+      "type": "extract_field",
+      "category": "extract",
+      "ai_supported": false,
+      "summary_fields": ["field_path", "expected_value", "verified"],
+      "fields": [
+        { "name": "field_path", "kind": "text", "required": true },
+        { "name": "expected_value", "kind": "scalar", "required": false },
+        { "name": "bboxes", "kind": "json", "required": false, "default": [] },
+        { "name": "verified", "kind": "boolean", "required": false, "default": true },
+        { "name": "tags", "kind": "string_array", "required": false, "default": [] }
+      ]
+    }
+  ]
+}
