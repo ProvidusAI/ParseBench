@@ -166,10 +166,13 @@ def pipe_tables_to_html(md: str) -> str:
 _IMG_REF = re.compile(r"^\s*!\[[^\]]*\]\(imgs/")
 
 
-def _chart_spans(lines: list[str], spans: list[tuple[int, int]]) -> set[tuple[int, int]]:
-    """Pipe tables that follow an image reference are chart data from the vision pass, not grounding tables."""
+def _chart_spans(lines: list[str], spans: list[tuple[int, int]], limit: int) -> set[tuple[int, int]]:
+    """Pipe tables that follow an image reference are chart data from the vision pass, not grounding tables.
+    At most ``limit`` (the grounding's chart elements), so a table under a logo stays a table."""
     charts = set()
     for a, b in spans:
+        if len(charts) >= limit:
+            break
         seen, j = 0, a - 1
         while j >= 0 and seen < 4:
             if lines[j].strip():
@@ -192,7 +195,9 @@ def tables_to_html(md: str, grounding: dict[str, Any]) -> str:
     ]
     spans = _pipe_blocks(md)
     lines = md.splitlines()
-    real = [s for s in spans if s not in _chart_spans(lines, spans)]
+    elements = [e for pg in grounding.get("pages") or [] for e in pg.get("elements") or []]
+    n_charts = sum(1 for e in elements if e.get("label") == "chart")
+    real = [s for s in spans if s not in _chart_spans(lines, spans, n_charts)]
     if not real or len(real) != len(htmls):
         return pipe_tables_to_html(md)
     out: list[str] = []
