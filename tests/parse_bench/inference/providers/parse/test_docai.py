@@ -249,8 +249,16 @@ def test_table_under_a_logo_keeps_its_grounding_html_without_a_chart_element():
 
 
 def test_page_number_at_top_is_a_header():
-    g = {"pages": [{"page_number": 1, "elements": [
-        {"label": "number", "bbox": {"x1": 0.9, "y1": 0.02, "x2": 0.95, "y2": 0.04}, "content": "7"},
-        {"label": "number", "bbox": {"x1": 0.5, "y1": 0.95, "x2": 0.52, "y2": 0.98}, "content": "8"}]}]}
+    g = {
+        "pages": [
+            {
+                "page_number": 1,
+                "elements": [
+                    {"label": "number", "bbox": {"x1": 0.9, "y1": 0.02, "x2": 0.95, "y2": 0.04}, "content": "7"},
+                    {"label": "number", "bbox": {"x1": 0.5, "y1": 0.95, "x2": 0.52, "y2": 0.98}, "content": "8"},
+                ],
+            }
+        ]
+    }
     labels = [i.bbox.label for i in layout_pages_from_grounding(g)[0].items]
     assert labels == ["Page-header", "Page-footer"]
