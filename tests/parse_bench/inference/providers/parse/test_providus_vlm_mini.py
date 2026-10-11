@@ -196,3 +196,61 @@ def test_unknown_category_becomes_text_and_bad_boxes_are_skipped(tmp_path: Path)
     result = _run(_provider([answer], None), _pdf(tmp_path / "a.pdf", pages=1))
     layout = create_layout_adapter_for_result(result).to_layout_output(result)
     assert [i.type for i in layout.layout_pages[0].items] == ["Text"]
+
+
+def _bodies(provider: ProvidusVlmMiniProvider, answers: list) -> list[dict]:
+    """Keep the request bodies that the fake server gets."""
+    bodies: list[dict] = []
+    queue = list(answers)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        bodies.append(json.loads(request.content))
+        return httpx.Response(200, json=queue.pop(0))
+
+    provider._transport = httpx.MockTransport(handler)
+    return bodies
+
+
+def test_pdf_source_sends_each_page_as_a_one_page_pdf(tmp_path: Path) -> None:
+    provider = _provider([])
+    bodies = _bodies(provider, PAGE_ANSWERS)
+    _run(provider, _pdf(tmp_path / "a.pdf"))
+    assert len(bodies) == 2
+    for n, body in enumerate(bodies):
+        with pymupdf.open(stream=base64.b64decode(body["pdf_base64"]), filetype="pdf") as one:
+            assert one.page_count == 1
+            assert one[0].get_text().strip() == f"page {n}"
+
+
+def test_image_source_sends_no_pdf(tmp_path: Path) -> None:
+    png = tmp_path / "a.png"
+    pymupdf.Pixmap(pymupdf.csRGB, pymupdf.IRect(0, 0, 20, 10), False).save(str(png))
+    provider = _provider([])
+    bodies = _bodies(provider, PAGE_ANSWERS[:1])
+    _run(provider, png)
+    assert len(bodies) == 1 and "pdf_base64" not in bodies[0] and bodies[0]["image_base64"]
+
+
+DECORATED = {
+    "status": "success",
+    "markdown": "ACME report\n\nBody.\n\nConfidential\n\n7",
+    "image_width": 200,
+    "image_height": 400,
+    "text_layer": {"used": 2, "kept_model": 1},
+    "items": [
+        {"category": "Page-header", "bbox": [0.1, 0.0, 0.9, 0.05], "text": "ACME report", "type": "header"},
+        {"category": "Text", "bbox": [0.1, 0.2, 0.9, 0.5], "text": "Body.", "type": "text"},
+        {"category": "Page-footer", "bbox": [0.1, 0.9, 0.7, 0.95], "text": "Confidential", "type": "footer"},
+        {"category": "Page-footer", "bbox": [0.8, 0.9, 0.9, 0.95], "text": "7", "type": "page_number"},
+    ],
+}
+
+
+def test_normalize_fills_the_page_header_footer_and_printed_page_number(tmp_path: Path) -> None:
+    result = _run(_provider([DECORATED, PAGE_ANSWERS[1]]), _pdf(tmp_path / "a.pdf"))
+    first, second = result.output.layout_pages
+    assert first.page_header_markdown == "ACME report"
+    assert first.page_footer_markdown == "Confidential\n\n7"  # the page number item is a Page-footer item too
+    assert first.printed_page_number == "7"
+    assert (second.page_header_markdown, second.page_footer_markdown, second.printed_page_number) == ("", "", "")
+    assert result.raw_output["pages"][0]["text_layer"] == {"used": 2, "kept_model": 1}

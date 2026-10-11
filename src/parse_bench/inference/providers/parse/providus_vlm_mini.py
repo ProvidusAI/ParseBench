@@ -1,6 +1,7 @@
 """Providus-VLM-mini: the ParseBench provider for the providus_parse /predict server.
 
 The provider renders each page, posts it to the server and keeps the markdown and the layout items of each page.
+For a PDF source it also posts the page as a one-page PDF, so the server can use the PDF text layer.
 Set the server address with the PROVIDUS_PARSE_URL variable or the `server_url` setting.
 """
 
@@ -27,14 +28,29 @@ from parse_bench.schemas.product import ProductType
 _IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff"}
 
 
-def _page_images(path: Path, dpi: int) -> list[bytes]:
-    """Return one PNG (or the image file itself) for each page of the source file."""
+def _one_page_pdf(doc: Any, index: int) -> bytes | None:
+    """Return one page of a PDF as a one-page PDF. If pymupdf cannot copy it, return None (the image path runs)."""
+    import pymupdf
+
+    try:
+        with pymupdf.open() as one:
+            one.insert_pdf(doc, from_page=index, to_page=index)
+            return bytes(one.tobytes())
+    except Exception:
+        return None
+
+
+def _pages(path: Path, dpi: int) -> list[tuple[bytes, bytes | None]]:
+    """Return a PNG (or the image file itself) and a one-page PDF (None for an image source) for each page."""
     if path.suffix.lower() in _IMAGE_SUFFIXES:
-        return [path.read_bytes()]
+        return [(path.read_bytes(), None)]
     import pymupdf
 
     with pymupdf.open(str(path)) as doc:
-        return [page.get_pixmap(dpi=dpi).tobytes("png") for page in doc]
+        return [
+            (page.get_pixmap(dpi=dpi).tobytes("png"), _one_page_pdf(doc, page.number) if doc.is_pdf else None)
+            for page in doc
+        ]
 
 
 def _page_record(number: int, answer: Any) -> dict[str, Any]:
@@ -51,7 +67,26 @@ def _page_record(number: int, answer: Any) -> dict[str, Any]:
         "items": items if isinstance(items, list) else [],
         "image_width": answer.get("image_width"),
         "image_height": answer.get("image_height"),
+        "text_layer": answer.get("text_layer"),
     }
+
+
+def _layout_page(page: dict[str, Any], md: str) -> ParseLayoutPageIR:
+    """The layout page of one page record, with the page header, page footer and printed page number from its items.
+
+    The footer joins every Page-footer item in reading order, the page number item too (its category is Page-footer).
+    """
+    items = [i for i in page.get("items") or [] if isinstance(i, dict)]
+    texts = [(i.get("category"), i.get("type"), str(i.get("text") or "").strip()) for i in items]
+    return ParseLayoutPageIR(
+        page_number=page["page_number"],
+        width=page.get("image_width"),
+        height=page.get("image_height"),
+        md=md,
+        page_header_markdown="\n\n".join(t for c, _, t in texts if c == "Page-header" and t),
+        page_footer_markdown="\n\n".join(t for c, _, t in texts if c == "Page-footer" and t),
+        printed_page_number=next((t for _, kind, t in texts if kind == "page_number" and t), ""),
+    )
 
 
 @register_provider("providus_vlm_mini")
@@ -75,14 +110,16 @@ class ProvidusVlmMiniProvider(Provider):
         started = datetime.now()
         path = Path(request.source_file_path)
         try:
-            images = _page_images(path, dpi)
+            images = _pages(path, dpi)
         except Exception as exc:
             raise ProviderPermanentError(f"cannot render {path.name}: {exc}") from exc
 
         pages: list[dict[str, Any]] = []
         with httpx.Client(timeout=timeout, transport=self._transport) as client:
-            for number, png in enumerate(images, start=1):
+            for number, (png, pdf) in enumerate(images, start=1):
                 body = {"image_base64": base64.b64encode(png).decode()}
+                if pdf:
+                    body["pdf_base64"] = base64.b64encode(pdf).decode()
                 try:
                     response = client.post(f"{url}/predict", json=body)
                     response.raise_for_status()
@@ -115,12 +152,7 @@ class ProvidusVlmMiniProvider(Provider):
             example_id=raw_result.request.example_id,
             pipeline_name=raw_result.pipeline_name,
             pages=[PageIR(page_index=i, markdown=md) for i, md in enumerate(page_markdown)],
-            layout_pages=[
-                ParseLayoutPageIR(
-                    page_number=p["page_number"], width=p.get("image_width"), height=p.get("image_height"), md=md
-                )
-                for p, md in zip(pages, page_markdown, strict=True)
-            ],
+            layout_pages=[_layout_page(p, md) for p, md in zip(pages, page_markdown, strict=True)],
             markdown="\n\n".join(md for md in page_markdown if md),
         )
         return InferenceResult(
