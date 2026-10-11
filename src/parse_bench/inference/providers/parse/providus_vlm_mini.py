@@ -71,21 +71,41 @@ def _page_record(number: int, answer: Any) -> dict[str, Any]:
     }
 
 
+def _centre_y(item: dict[str, Any]) -> float | None:
+    """The 0-1 vertical centre of an item box, or None if the box is not usable."""
+    box = item.get("bbox")
+    try:
+        return (float(box[1]) + float(box[3])) / 2 if isinstance(box, (list, tuple)) and len(box) == 4 else None
+    except (TypeError, ValueError):
+        return None
+
+
 def _layout_page(page: dict[str, Any], md: str) -> ParseLayoutPageIR:
     """The layout page of one page record, with the page header, page footer and printed page number from its items.
 
-    The footer joins every Page-footer item in reading order, the page number item too (its category is Page-footer).
+    A field takes only the items at its own page edge (box centre above or below half the page height):
+    the header takes Page-header items and the page number at the top, the footer takes Page-footer items
+    (the page number too) at the bottom. So a field never holds text that ParseBench folds in at the other edge.
     """
-    items = [i for i in page.get("items") or [] if isinstance(i, dict)]
-    texts = [(i.get("category"), i.get("type"), str(i.get("text") or "").strip()) for i in items]
+    header, footer, number = [], [], ""
+    for item in (i for i in page.get("items") or [] if isinstance(i, dict)):
+        text, kind, y = str(item.get("text") or "").strip(), item.get("type"), _centre_y(item)
+        if not text or y is None:
+            continue
+        if kind == "page_number":
+            number = number or text
+        if y < 0.5 and (item.get("category") == "Page-header" or kind == "page_number"):
+            header.append(text)
+        elif y >= 0.5 and item.get("category") == "Page-footer":
+            footer.append(text)
     return ParseLayoutPageIR(
         page_number=page["page_number"],
         width=page.get("image_width"),
         height=page.get("image_height"),
         md=md,
-        page_header_markdown="\n\n".join(t for c, _, t in texts if c == "Page-header" and t),
-        page_footer_markdown="\n\n".join(t for c, _, t in texts if c == "Page-footer" and t),
-        printed_page_number=next((t for _, kind, t in texts if kind == "page_number" and t), ""),
+        page_header_markdown="\n\n".join(header),
+        page_footer_markdown="\n\n".join(footer),
+        printed_page_number=number,
     )
 
 

@@ -254,3 +254,34 @@ def test_normalize_fills_the_page_header_footer_and_printed_page_number(tmp_path
     assert first.printed_page_number == "7"
     assert (second.page_header_markdown, second.page_footer_markdown, second.printed_page_number) == ("", "", "")
     assert result.raw_output["pages"][0]["text_layer"] == {"used": 2, "kept_model": 1}
+
+
+def _decorated(items: list) -> dict:
+    return {**DECORATED, "items": items}
+
+
+def test_a_page_number_at_the_top_goes_into_the_header(tmp_path: Path) -> None:
+    items = [
+        {"category": "Page-header", "bbox": [0.1, 0.0, 0.7, 0.05], "text": "ACME report", "type": "header"},
+        {"category": "Page-footer", "bbox": [0.8, 0.0, 0.9, 0.05], "text": "7", "type": "page_number"},
+        {"category": "Text", "bbox": [0.1, 0.2, 0.9, 0.5], "text": "Body.", "type": "text"},
+        {"category": "Page-footer", "bbox": [0.1, 0.9, 0.7, 0.95], "text": "Confidential", "type": "footer"},
+    ]
+    result = _run(_provider([_decorated(items)]), _pdf(tmp_path / "a.pdf", pages=1))
+    page = result.output.layout_pages[0]
+    assert (page.page_header_markdown, page.page_footer_markdown, page.printed_page_number) == (
+        "ACME report\n\n7",
+        "Confidential",
+        "7",
+    )
+
+
+def test_a_field_takes_only_items_at_its_own_page_edge(tmp_path: Path) -> None:
+    items = [
+        {"category": "Page-header", "bbox": [0.1, 0.9, 0.7, 0.95], "text": "low header", "type": "header"},
+        {"category": "Page-footer", "bbox": [0.1, 0.0, 0.7, 0.05], "text": "high footer", "type": "footer"},
+        {"category": "Page-footer", "bbox": [0.8, 0.95, 0.9, 1.0], "text": "iv", "type": "page_number"},
+    ]
+    result = _run(_provider([_decorated(items)]), _pdf(tmp_path / "a.pdf", pages=1))
+    page = result.output.layout_pages[0]
+    assert (page.page_header_markdown, page.page_footer_markdown, page.printed_page_number) == ("", "iv", "iv")
