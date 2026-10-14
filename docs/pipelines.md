@@ -378,6 +378,44 @@ Fine-tune of MinerU2.5-Pro-2605-1.2B ([aeddix-labs/aeddix-alpine-ocr](https://hu
 |---|---|---|
 | `aeddix_alpine_ocr_kdl` | vLLM OpenAI-compatible endpoint (layout + per-region recognition) | `AEDDIX_ALPINE_OCR_KDL_ENDPOINT_URL` |
 
+### providus-vl-mini
+
+<img src="providus-logo.png" alt="Providus" width="64">
+
+providus-vl-mini is a fine-tune of MinerU2.5-Pro by OpenDataLab (Apache-2.0). We did not pretrain a model.
+providus-parse-tools extends mineru-vl-utils by OpenDataLab. The weights are open, with gated access (accept the terms on Hugging Face; access is approved automatically).
+
+- Model: [ProvidusAI/providus-vl-mini](https://huggingface.co/ProvidusAI/providus-vl-mini)
+- Code: [ProvidusAI/providus-parse-tools](https://github.com/ProvidusAI/providus-parse-tools), package: [providus-parse-tools on PyPI](https://pypi.org/project/providus-parse-tools/)
+
+| Pipeline | Description | Env Var |
+|---|---|---|
+| `providus_vlm_mini` | providus_parse `/predict` server (layout + recognition, PDF text layer for formatting marks) | `PROVIDUS_PARSE_URL` |
+
+Start the servers (vLLM 0.28.0, a small router and the parse server) with the commands in [SERVING.md](https://github.com/ProvidusAI/providus-parse-tools/blob/v1/SERVING.md). Then run:
+
+```bash
+export PROVIDUS_PARSE_URL=http://127.0.0.1:8100
+uv run parse-bench run providus_vlm_mini --max_concurrent 24
+```
+
+Scores are the mean of 4 full ParseBench runs (± standard deviation). Scorer: ParseBench `main` at b9ba246 (2026-10-12).
+
+| Run | Overall | Tables | Charts | Content faithfulness | Semantic formatting | Visual grounding |
+|---|---:|---:|---:|---:|---:|---:|
+| 1 | 78.99 | 86.36 | 71.13 | 87.80 | 74.48 | 75.17 |
+| 2 | 79.00 | 86.32 | 71.22 | 87.80 | 74.48 | 75.18 |
+| 3 | 78.93 | 86.35 | 71.21 | 87.64 | 74.23 | 75.24 |
+| 4 | 78.91 | 86.31 | 71.00 | 87.61 | 74.43 | 75.19 |
+| **Mean ± SD** | **78.96 ± 0.04** | **86.33 ± 0.02** | **71.14 ± 0.10** | **87.71 ± 0.10** | **74.41 ± 0.12** | **75.19 ± 0.03** |
+
+These scores are for the whole v1 system, not for the adapter alone: the base model, the text LoRA adapter on the text route, and providus-parse-tools 1.0.0, which also reads the PDF text layer for formatting marks (bold, italic, headings). A different pipeline will give different scores.
+No rule in our pipeline contains ParseBench documents, file names or answers. We used benchmark results to find common error types, then wrote general rules and checked them on our own data.
+
+Hardware and time: one NVIDIA H100 80 GB. A full ParseBench run (2,078 pages, multi-page documents, scoring included) takes 44.4 minutes from start to scores on one H100 at 24 pages at a time (inference and scoring, servers already running).
+
+Credit: thank you to OpenDataLab and the MinerU team for MinerU2.5-Pro and `mineru-vl-utils`.
+
 ---
 
 ## Local Pipelines (No API key needed)
