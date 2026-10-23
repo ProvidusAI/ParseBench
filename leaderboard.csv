@@ -109,6 +109,7 @@ TeleOCR,VLM - Open Weight,58.67,72.74,9.97,85.39,45.13,80.14,,,,,,StarDoc-AI/Tel
 Gemma-4-26B-A4B-it,VLM - Open Weight,58.5,70,14.2,83.8,65.1,59.2,,,,,,google/gemma-4-26B-A4B-it
 Nemotron-3-Nano-Omni-30B-A3B (Thinking),VLM - Open Weight,48.51,70.44,31.47,80.97,59.69,0,,,,,,nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16
 LightOnOCR-2-1B,VLM - Open Weight,48,75.5,13.5,87.8,63.2,0,,,,,,lightonai/LightOnOCR-2-1B
+Nemotron-3.5-Parse,VLM - Open Weight,75.2,84.67,64.4,87.96,68.28,70.67,,,,,,nvidia/Nemotron-3.5-Parse
 LightOnOCR-3-4B,VLM - Open Weight,75.1,83.8,66.1,89.9,67.6,68.3,,,,,,lightonai/LightOnOCR-3-4B
 LightOnOCR-3-0.8B,VLM - Open Weight,74.6,84.5,64.7,88.9,66.7,68.2,,,,,,lightonai/LightOnOCR-3-0.8B
 LightOnOCR-3-1B,VLM - Open Weight,71.4,84.8,57.3,88.6,64.5,61.7,,,,,,lightonai/LightOnOCR-3-1B
@@ -136,7 +137,7 @@ florin-parser-nano,VLM - Open Weight,76.69,86.10,65.19,87.37,70.64,74.14,,,,,,fl
 rakedoc-nano,VLM - Open Weight,77.23,86.44,64.89,88.84,71.68,74.28,,,,,,cloudraker/rakedoc-nano
 aeddix-alpine-ocr (KDL pipeline),VLM - Open Weight,76.77,85.89,68.78,87.90,66.05,75.21,,,,,,aeddix-labs/aeddix-alpine-ocr
 providus-vl-mini,VLM - Open Weight,78.96,86.33,71.14,87.71,74.41,75.19,,,,,,ProvidusAI/providus-vl-mini
-providus-vl-mini (GGUF, llama.cpp),VLM - Open Weight,79.03,86.41,71.01,88.02,74.6,75.1,,,,,,ProvidusAI/providus-vl-mini-GGUF
+"providus-vl-mini (GGUF, llama.cpp)",VLM - Open Weight,79.03,86.41,71.01,88.02,74.6,75.1,,,,,,ProvidusAI/providus-vl-mini-GGUF
 DeepSeek V4.1 Flash (Thinking High),VLM - Open Weight,65.72,82.82,51.11,87.33,73.48,33.87,,,,,,deepseek-ai/DeepSeek-V4.1-Flash
 DeepSeek V4.1 Flash (No Thinking),VLM - Open Weight,56.57,79.65,20.46,88.09,66.05,28.61,,,,,,deepseek-ai/DeepSeek-V4.1-Flash
 MarkItDown,Open Source - Local,18.63,15.77,2.02,64.54,0.91,9.90,,,,,,
@@ -148,3 +149,4 @@ pypdf,Open Source - Local,14.87,0.00,0.00,62.50,0.91,10.92,,,,,,
 pdf-inspector,Open Source - Local,26.59,26.64,5.29,56.06,35.07,9.91,,,,,,
 LiteParse (no OCR),Open Source - Local,36.9,42.4,1.8,70.0,38.5,31.8,,,,,,
 Warp Ingest,Open Source - Local,40.18,57.45,7.04,70.81,45.81,19.78,,,,,,
+Upstage Document Parse 2 (Enhanced),VLM - Proprietary,80.51,89.49,77.26,87.36,76.88,71.56,3,3,3,3,3,
