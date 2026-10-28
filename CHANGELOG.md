@@ -34,6 +34,10 @@ All notable changes to `parse-bench` are recorded here. The format follows
   is what lets the reference resolve in the first place.
 
 ### Added
+- `ovisocr3_vllm` pipeline and `ovisocr3` provider for OvisOCR3
+  (`OVISOCR3_SERVER_URL`). Sends the official structured-parsing prompt, re-reads
+  each chart region with the official chart-parsing prompt, and scores layout
+  through `LayoutDetectionModel.OVISOCR3_LAYOUT`.
 - `unlimitedocr2` pipeline and provider for Unlimited-OCR 2
   (`UNLIMITEDOCR2_SERVER_URL`). Converts the model's layout-block output with
   Baidu's official converter (vendored) and scores layout through
