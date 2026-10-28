@@ -388,6 +388,12 @@ These pipelines require you to deploy the model on your own infrastructure (e.g.
 |---|---|---|
 | `unlimitedocr2` | Unlimited-OCR 2 on its official SGLang server (whole document per request; layout) | `UNLIMITEDOCR2_SERVER_URL` |
 
+### OvisOCR3
+
+| Pipeline | Description | Env Var |
+|---|---|---|
+| `ovisocr3_vllm` | OvisOCR3 on vLLM with the model card settings (official structured parse plus a chart-parsing pass per chart region; layout) | `OVISOCR3_SERVER_URL` |
+
 ### Surya OCR 2
 
 | Pipeline | Description | Env Var |

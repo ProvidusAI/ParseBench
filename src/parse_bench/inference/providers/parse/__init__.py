@@ -55,6 +55,7 @@ _PROVIDER_MODULES = [
     "nutrient_dws",
     "openai",
     "ovisocr2",
+    "ovisocr3",
     "paddleocr",
     "pulse",
     "pymupdf",
