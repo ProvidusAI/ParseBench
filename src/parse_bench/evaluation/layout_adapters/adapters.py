@@ -1468,6 +1468,50 @@ class NemotronParse35LayoutAdapter(HunyuanOcrLayoutAdapter):
         return layout_output.model_copy(update={"model": LayoutDetectionModel.NEMOTRON_PARSE_LAYOUT})
 
 
+@register_layout_adapter("unlimitedocr2", priority=90)
+class UnlimitedOcr2LayoutAdapter(HunyuanOcrLayoutAdapter):
+    """Project Unlimited-OCR 2 ``layout_pages`` like HunyuanOCR: Canonical17 labels kept as strings.
+
+    Resolved by provider key only. Without it, attribution falls back to the
+    LlamaParse adapter, which reads the normalized boxes as pixels.
+    """
+
+    @classmethod
+    def matches(cls, inference_result: InferenceResult) -> bool:
+        return False
+
+    def to_layout_output(
+        self,
+        inference_result: InferenceResult,
+        *,
+        page_filter: int | None = None,
+    ) -> LayoutOutput:
+        layout_output = super().to_layout_output(inference_result, page_filter=page_filter)
+        return layout_output.model_copy(update={"model": LayoutDetectionModel.UNLIMITED_OCR_2_LAYOUT})
+
+
+@register_layout_adapter("ovisocr3", priority=90)
+class OvisOcr3LayoutAdapter(HunyuanOcrLayoutAdapter):
+    """Project OvisOCR3 ``layout_pages`` like HunyuanOCR: Canonical17 labels kept as strings.
+
+    Resolved by provider key only. Without it, attribution falls back to the
+    LlamaParse adapter, which reads the normalized boxes as pixels.
+    """
+
+    @classmethod
+    def matches(cls, inference_result: InferenceResult) -> bool:
+        return False
+
+    def to_layout_output(
+        self,
+        inference_result: InferenceResult,
+        *,
+        page_filter: int | None = None,
+    ) -> LayoutOutput:
+        layout_output = super().to_layout_output(inference_result, page_filter=page_filter)
+        return layout_output.model_copy(update={"model": LayoutDetectionModel.OVISOCR3_LAYOUT})
+
+
 @register_layout_adapter("openai", priority=90)
 class OpenAILayoutAdapter(LayoutAdapter):
     """Adapter that extracts LayoutOutput from OpenAI ParseOutput.layout_pages.
@@ -3711,6 +3755,33 @@ class HpdParsingLayoutAdapter(LiteParseLayoutAdapter):
     ) -> LayoutOutput:
         layout_output = super().to_layout_output(inference_result, page_filter=page_filter)
         return layout_output.model_copy(update={"model": LayoutDetectionModel.HPD_PARSING_LAYOUT})
+
+
+@register_layout_adapter("minicpm_ocr", priority=90)
+class MiniCPMOCRLayoutAdapter(LiteParseLayoutAdapter):
+    """Convert MiniCPM-OCR's normalized ``layout_pages`` (PP-DocLayoutV3 regions) to layout output."""
+
+    @classmethod
+    def matches(cls, inference_result: InferenceResult) -> bool:
+        if not isinstance(inference_result.output, ParseOutput) or not inference_result.output.layout_pages:
+            return False
+        page_results = inference_result.raw_output.get("page_results")
+        return (
+            isinstance(page_results, list)
+            and bool(page_results)
+            and isinstance(page_results[0], dict)
+            and "blocks" in page_results[0]
+            and "page_index" in page_results[0]
+        )
+
+    def to_layout_output(
+        self,
+        inference_result: InferenceResult,
+        *,
+        page_filter: int | None = None,
+    ) -> LayoutOutput:
+        layout_output = super().to_layout_output(inference_result, page_filter=page_filter)
+        return layout_output.model_copy(update={"model": LayoutDetectionModel.MINICPM_OCR_LAYOUT})
 
 
 @register_layout_adapter("teleocr", priority=90)

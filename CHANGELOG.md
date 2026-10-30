@@ -13,6 +13,13 @@ All notable changes to `parse-bench` are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+- `repetition_overshoot`, a built-in rule that fails an output repeating anything (a leader, a unit, a token, a line,
+  a table row, a whole table) more than the page holds. `parse-bench repetition make <dir>` writes this test next to
+  each of your own PDFs, budgeted from its text layer. See `docs/repetition-overshoot.md`.
+- `--dataset` on `download`, `status` and `run` accepts any HuggingFace dataset repo id (`org/name`) in the ParseBench
+  layout, downloaded to `./data/<name>`.
+
 ### Fixed
 - Layout attribution no longer crashes on layout rules without an `ro_index`.
   `LayoutDetectionEvaluator` dumps rules with `ro_index=None`, which
@@ -27,6 +34,14 @@ All notable changes to `parse-bench` are recorded here. The format follows
   is what lets the reference resolve in the first place.
 
 ### Added
+- `ovisocr3_vllm` pipeline and `ovisocr3` provider for OvisOCR3
+  (`OVISOCR3_SERVER_URL`). Sends the official structured-parsing prompt, re-reads
+  each chart region with the official chart-parsing prompt, and scores layout
+  through `LayoutDetectionModel.OVISOCR3_LAYOUT`.
+- `unlimitedocr2` pipeline and provider for Unlimited-OCR 2
+  (`UNLIMITEDOCR2_SERVER_URL`). Converts the model's layout-block output with
+  Baidu's official converter (vendored) and scores layout through
+  `LayoutDetectionModel.UNLIMITED_OCR_2_LAYOUT`.
 - `nemotron_parse_3_5_sdk` pipeline and `nemotron_parse_3_5` provider for
   Nemotron 3.5 Parse, driven by an SDK server that runs the model repository's
   triple-pass pipeline (`NEMOTRON_PARSE_3_5_SERVER_URL`). Its layout adapter
@@ -34,6 +49,11 @@ All notable changes to `parse-bench` are recorded here. The format follows
   `LayoutDetectionModel.NEMOTRON_PARSE_LAYOUT` (with a `LAYOUT_MODEL_INFO`
   entry), and a passthrough label mapper resolves them, so Visual Grounding is
   scored instead of raising `UnknownRawLayoutLabelError`.
+- `minicpm_ocr_sdk` pipeline and `minicpm_ocr` provider for MiniCPM-OCR 1.0,
+  driven by a server running the official `minicpmvocr` SDK
+  (`MINICPM_OCR_SERVER_URL`). PP-DocLayoutV3 regions are mapped to canonical
+  labels and scored for Visual Grounding under the new
+  `LayoutDetectionModel.MINICPM_OCR_LAYOUT` (with a `LAYOUT_MODEL_INFO` entry).
 - `register_reference_thumbnailer` (exported from `parse_bench.extensions`):
   how a rule's `reference_image` is rendered into the detailed report. parse-bench
   keeps no image stack in its core dependencies, so it ships no default and
